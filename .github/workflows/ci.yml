@@ -4,7 +4,7 @@ on:
   pull_request:
     branches: [ main ]
   push:
-    branches: [ main ]
+    branches: [ '**' ]  # Run on all branches for early feedback
 
 # Prevent concurrent runs on the same PR
 concurrency:
@@ -23,7 +23,7 @@ jobs:
     - name: Set up Go
       uses: actions/setup-go@v5
       with:
-        go-version: '1.21'
+        go-version: '1.25'
 
     - name: Download dependencies
       run: go mod download
@@ -49,7 +49,7 @@ jobs:
     - name: Set up Go
       uses: actions/setup-go@v5
       with:
-        go-version: '1.21'
+        go-version: '1.25'
 
     - name: Run golangci-lint
       uses: golangci/golangci-lint-action@v4
@@ -63,7 +63,7 @@ jobs:
     # Only run if GCP secrets are available (skip on forks)
     if: |
       (github.event.pull_request.head.repo.full_name == github.repository || github.event_name == 'push') &&
-      github.repository == 'BlueMeta/kaimi'
+      github.repository == 'Mawar2/Kaimi'
 
     steps:
     - name: Checkout code
