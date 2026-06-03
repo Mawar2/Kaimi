@@ -392,9 +392,9 @@ func parseFlexibleDate(dateStr string) (time.Time, error) {
 
 	// Try formats in order of specificity
 	formats := []string{
-		time.RFC3339,           // "2006-01-02T15:04:05Z07:00"
-		"2006-01-02T15:04:05",  // "2026-06-01T18:00:00" (no timezone)
-		"2006-01-02",           // "2026-06-01" (date only)
+		time.RFC3339,          // "2006-01-02T15:04:05Z07:00"
+		"2006-01-02T15:04:05", // "2026-06-01T18:00:00" (no timezone)
+		"2006-01-02",          // "2026-06-01" (date only)
 	}
 
 	for _, format := range formats {

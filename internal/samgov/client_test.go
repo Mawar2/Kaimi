@@ -331,33 +331,33 @@ func TestTransformOpportunity_ResourceLinksVariants(t *testing.T) {
 	}
 
 	tests := []struct {
-		name              string
-		resourceLinks     []byte
+		name                string
+		resourceLinks       []byte
 		expectedAttachments int
 	}{
 		{
-			name:              "resourceLinks as array",
-			resourceLinks:     []byte(`[{"name":"RFP.pdf","url":"https://sam.gov/rfp.pdf"},{"name":"Addendum.pdf","url":"https://sam.gov/addendum.pdf"}]`),
+			name:                "resourceLinks as array",
+			resourceLinks:       []byte(`[{"name":"RFP.pdf","url":"https://sam.gov/rfp.pdf"},{"name":"Addendum.pdf","url":"https://sam.gov/addendum.pdf"}]`),
 			expectedAttachments: 2,
 		},
 		{
-			name:              "resourceLinks as string (should not fail)",
-			resourceLinks:     []byte(`"some string value"`),
+			name:                "resourceLinks as string (should not fail)",
+			resourceLinks:       []byte(`"some string value"`),
 			expectedAttachments: 0,
 		},
 		{
-			name:              "resourceLinks as empty array",
-			resourceLinks:     []byte(`[]`),
+			name:                "resourceLinks as empty array",
+			resourceLinks:       []byte(`[]`),
 			expectedAttachments: 0,
 		},
 		{
-			name:              "resourceLinks as null",
-			resourceLinks:     []byte(`null`),
+			name:                "resourceLinks as null",
+			resourceLinks:       []byte(`null`),
 			expectedAttachments: 0,
 		},
 		{
-			name:              "resourceLinks empty",
-			resourceLinks:     nil,
+			name:                "resourceLinks empty",
+			resourceLinks:       nil,
 			expectedAttachments: 0,
 		},
 	}
