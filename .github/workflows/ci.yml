@@ -54,8 +54,7 @@ jobs:
     - name: Run golangci-lint
       uses: golangci/golangci-lint-action@v9
       with:
-        version: v1.64.8
-        install-mode: goinstall  # Build from source with Go 1.25
+        version: latest  # Use latest version (v2.x) built with Go 1.25+
         args: --timeout=5m
 
   verify-gcp:
