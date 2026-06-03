@@ -24,6 +24,14 @@ vendor/
 # Environment files
 .env
 .env.local
+.env.gcp
+
+# GCP credentials (NEVER commit these!)
+kaimi-sa-key.json
+*-sa-key.json
+gcp-key.json
+service-account*.json
+google-credentials.json
 
 # IDE
 .vscode/

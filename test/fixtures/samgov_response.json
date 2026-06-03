@@ -1,0 +1,234 @@
+{
+  "totalRecords": 3,
+  "limit": 10,
+  "offset": 0,
+  "opportunitiesData": [
+    {
+      "noticeId": "a1b2c3d4e5f6",
+      "title": "Cloud Infrastructure Modernization Services",
+      "solicitationNumber": "GS00Q26NSD0001",
+      "department": "GENERAL SERVICES ADMINISTRATION",
+      "subTier": "GSA/FAS - FEDERAL ACQUISITION SERVICE",
+      "office": "GSA/FAS/AAS - ASSISTED ACQUISITION SERVICES",
+      "postedDate": "2026-05-15",
+      "type": "Solicitation",
+      "baseType": "Solicitation",
+      "archiveType": "auto15",
+      "archiveDate": "2026-08-15",
+      "typeOfSetAsideDescription": "Total Small Business Set-Aside (FAR 19.5)",
+      "typeOfSetAside": "SBA",
+      "responseDeadLine": "2026-07-15T16:00:00-05:00",
+      "naicsCode": "541512",
+      "naicsCodes": ["541512"],
+      "classificationCode": "D399",
+      "active": "Yes",
+      "award": null,
+      "pointOfContact": [
+        {
+          "type": "primary",
+          "title": "Contract Specialist",
+          "fullName": "Jane Smith",
+          "email": "jane.smith@gsa.gov",
+          "phone": "555-0100",
+          "fax": null
+        }
+      ],
+      "description": "The General Services Administration requires cloud infrastructure modernization services to migrate legacy systems to a modern cloud-based architecture. This includes infrastructure assessment, cloud architecture design, migration planning and execution, security implementation, and ongoing support. The contractor shall provide comprehensive cloud migration services including AWS, Azure, or GCP expertise, DevOps automation, containerization, and microservices architecture implementation. Performance period is 12 months base with four 12-month option periods.",
+      "organizationType": "OFFICE",
+      "officeAddress": {
+        "zipcode": "20405",
+        "city": "WASHINGTON",
+        "countryCode": "USA",
+        "state": "DC"
+      },
+      "placeOfPerformance": {
+        "streetAddress": "1800 F Street NW",
+        "city": {
+          "code": "51650",
+          "name": "WASHINGTON"
+        },
+        "state": {
+          "code": "DC",
+          "name": "DISTRICT OF COLUMBIA"
+        },
+        "zip": "20405",
+        "country": {
+          "code": "USA",
+          "name": "UNITED STATES"
+        }
+      },
+      "additionalInfoLink": "https://sam.gov/opp/a1b2c3d4e5f6/view",
+      "uiLink": "https://sam.gov/opp/a1b2c3d4e5f6/view",
+      "links": [
+        {
+          "rel": "self",
+          "href": "https://api.sam.gov/opportunities/v2/search?noticeid=a1b2c3d4e5f6"
+        }
+      ],
+      "resourceLinks": [
+        {
+          "name": "RFP-GS00Q26NSD0001.pdf",
+          "url": "https://sam.gov/api/prod/opps/v3/opportunities/resources/files/a1b2c3d4e5f6/download?&token=",
+          "type": "application/pdf",
+          "size": 2458632
+        },
+        {
+          "name": "SOW-CloudMigration.pdf",
+          "url": "https://sam.gov/api/prod/opps/v3/opportunities/resources/files/a1b2c3d4e5f6/download?&resourceId=123&token=",
+          "type": "application/pdf",
+          "size": 1234567
+        }
+      ]
+    },
+    {
+      "noticeId": "f6e5d4c3b2a1",
+      "title": "Cybersecurity Assessment and Penetration Testing",
+      "solicitationNumber": "DHS-CISA-2026-042",
+      "department": "DEPT OF HOMELAND SECURITY",
+      "subTier": "CYBERSECURITY AND INFRASTRUCTURE SECURITY AGENCY",
+      "office": "CISA - CYBERSECURITY DIVISION",
+      "postedDate": "2026-05-20",
+      "type": "Presolicitation",
+      "baseType": "Presolicitation",
+      "archiveType": "auto15",
+      "archiveDate": "2026-06-20",
+      "typeOfSetAsideDescription": "8(a) Set-Aside",
+      "typeOfSetAside": "8A",
+      "responseDeadLine": "2026-06-25T14:00:00-05:00",
+      "naicsCode": "541512",
+      "naicsCodes": ["541512", "541519"],
+      "classificationCode": "D320",
+      "active": "Yes",
+      "award": null,
+      "pointOfContact": [
+        {
+          "type": "primary",
+          "title": "Contracting Officer",
+          "fullName": "Robert Johnson",
+          "email": "robert.johnson@cisa.dhs.gov",
+          "phone": "555-0200"
+        }
+      ],
+      "description": "CISA requires comprehensive cybersecurity assessment and penetration testing services for critical infrastructure systems. The contractor shall conduct vulnerability assessments, penetration testing, security audits, and provide detailed remediation recommendations. Services include: network security assessments, application security testing, social engineering tests, wireless security assessments, cloud security reviews, and compliance validation against NIST frameworks. The contractor must hold relevant certifications (OSCP, CEH, CISSP) and have active clearances. This is a presolicitation notice - full RFP will be released in 30 days.",
+      "organizationType": "OFFICE",
+      "officeAddress": {
+        "zipcode": "20528",
+        "city": "WASHINGTON",
+        "countryCode": "USA",
+        "state": "DC"
+      },
+      "placeOfPerformance": {
+        "city": {
+          "code": "51650",
+          "name": "WASHINGTON"
+        },
+        "state": {
+          "code": "DC",
+          "name": "DISTRICT OF COLUMBIA"
+        },
+        "country": {
+          "code": "USA",
+          "name": "UNITED STATES"
+        }
+      },
+      "additionalInfoLink": "https://sam.gov/opp/f6e5d4c3b2a1/view",
+      "uiLink": "https://sam.gov/opp/f6e5d4c3b2a1/view",
+      "links": [
+        {
+          "rel": "self",
+          "href": "https://api.sam.gov/opportunities/v2/search?noticeid=f6e5d4c3b2a1"
+        }
+      ],
+      "resourceLinks": [
+        {
+          "name": "Presolicitation-Notice.pdf",
+          "url": "https://sam.gov/api/prod/opps/v3/opportunities/resources/files/f6e5d4c3b2a1/download?&token=",
+          "type": "application/pdf",
+          "size": 456789
+        }
+      ]
+    },
+    {
+      "noticeId": "9z8y7x6w5v4u",
+      "title": "AI/ML Platform Development for Data Analytics",
+      "solicitationNumber": "DOE-AI-2026-088",
+      "department": "DEPT OF ENERGY",
+      "subTier": "ADVANCED RESEARCH PROJECTS AGENCY-ENERGY",
+      "office": "ARPA-E - TECHNOLOGY PROGRAMS",
+      "postedDate": "2026-05-18",
+      "type": "Solicitation",
+      "baseType": "Solicitation",
+      "archiveType": "auto15",
+      "archiveDate": "2026-09-18",
+      "typeOfSetAsideDescription": null,
+      "typeOfSetAside": null,
+      "responseDeadLine": "2026-08-01T17:00:00-05:00",
+      "naicsCode": "541519",
+      "naicsCodes": ["541519", "541512"],
+      "classificationCode": "D302",
+      "active": "Yes",
+      "award": null,
+      "pointOfContact": [
+        {
+          "type": "primary",
+          "title": "Program Manager",
+          "fullName": "Dr. Sarah Chen",
+          "email": "sarah.chen@hq.doe.gov",
+          "phone": "555-0300"
+        }
+      ],
+      "description": "The Department of Energy ARPA-E seeks proposals for the development of an advanced AI/ML platform for energy data analytics. The platform must support large-scale data processing, real-time analytics, predictive modeling, and visualization of energy grid data. Key requirements include: distributed computing architecture, support for TensorFlow and PyTorch frameworks, integration with existing DOE data systems, advanced security controls for sensitive energy infrastructure data, and scalable deployment across cloud and on-premises environments. Contract type: Firm Fixed Price. NAICS: 541519 - Other Computer Related Services. No set-aside restrictions. Estimated value: $5M-$8M over 3 years.",
+      "organizationType": "OFFICE",
+      "officeAddress": {
+        "zipcode": "20585",
+        "city": "WASHINGTON",
+        "countryCode": "USA",
+        "state": "DC"
+      },
+      "placeOfPerformance": {
+        "streetAddress": "1000 Independence Ave SW",
+        "city": {
+          "code": "51650",
+          "name": "WASHINGTON"
+        },
+        "state": {
+          "code": "DC",
+          "name": "DISTRICT OF COLUMBIA"
+        },
+        "zip": "20585",
+        "country": {
+          "code": "USA",
+          "name": "UNITED STATES"
+        }
+      },
+      "additionalInfoLink": "https://sam.gov/opp/9z8y7x6w5v4u/view",
+      "uiLink": "https://sam.gov/opp/9z8y7x6w5v4u/view",
+      "links": [
+        {
+          "rel": "self",
+          "href": "https://api.sam.gov/opportunities/v2/search?noticeid=9z8y7x6w5v4u"
+        }
+      ],
+      "resourceLinks": [
+        {
+          "name": "RFP-DOE-AI-2026-088.pdf",
+          "url": "https://sam.gov/api/prod/opps/v3/opportunities/resources/files/9z8y7x6w5v4u/download?&token=",
+          "type": "application/pdf",
+          "size": 3456789
+        },
+        {
+          "name": "Technical-Requirements.docx",
+          "url": "https://sam.gov/api/prod/opps/v3/opportunities/resources/files/9z8y7x6w5v4u/download?&resourceId=456&token=",
+          "type": "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+          "size": 987654
+        },
+        {
+          "name": "Cost-Volume-Template.xlsx",
+          "url": "https://sam.gov/api/prod/opps/v3/opportunities/resources/files/9z8y7x6w5v4u/download?&resourceId=789&token=",
+          "type": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+          "size": 234567
+        }
+      ]
+    }
+  ]
+}
