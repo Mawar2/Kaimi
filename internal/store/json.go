@@ -46,7 +46,7 @@ func NewJSONStore(basePath string) (Store, error) {
 	if err != nil {
 		if os.IsNotExist(err) {
 			// If basePath doesn't exist, try to create it
-			if err := os.MkdirAll(basePath, 0755); err != nil {
+			if err := os.MkdirAll(basePath, 0o755); err != nil {
 				return nil, fmt.Errorf("failed to create base directory: %w", err)
 			}
 		} else {
@@ -58,7 +58,7 @@ func NewJSONStore(basePath string) (Store, error) {
 
 	// Create queue subdirectory
 	queuePath := filepath.Join(basePath, "queue")
-	if err := os.MkdirAll(queuePath, 0755); err != nil {
+	if err := os.MkdirAll(queuePath, 0o755); err != nil {
 		return nil, fmt.Errorf("failed to create queue directory: %w", err)
 	}
 
@@ -93,7 +93,7 @@ func (s *JSONStore) Save(ctx context.Context, opp *opportunity.Opportunity) erro
 
 	// Write to file
 	filePath := s.filePath(opp.ID)
-	if err := os.WriteFile(filePath, data, 0644); err != nil {
+	if err := os.WriteFile(filePath, data, 0o644); err != nil {
 		return fmt.Errorf("failed to write opportunity file: %w", err)
 	}
 

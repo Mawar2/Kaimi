@@ -128,7 +128,7 @@ func TestValidateConfig(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			err := validateConfig(tt.config)
+			err := validateConfig(&tt.config)
 			if tt.shouldError && err == nil {
 				t.Error("Expected error but got none")
 			}
@@ -144,8 +144,14 @@ func TestGetEnv(t *testing.T) {
 	// Set a test environment variable
 	testKey := "TEST_HUNTER_VAR"
 	testValue := "test-value"
-	os.Setenv(testKey, testValue)
-	defer os.Unsetenv(testKey)
+	if err := os.Setenv(testKey, testValue); err != nil {
+		t.Fatalf("Failed to set environment variable: %v", err)
+	}
+	defer func() {
+		if err := os.Unsetenv(testKey); err != nil {
+			t.Errorf("Failed to unset environment variable: %v", err)
+		}
+	}()
 
 	tests := []struct {
 		name         string

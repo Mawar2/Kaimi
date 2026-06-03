@@ -483,7 +483,7 @@ func TestJSONStore_ListWithCorruptedFiles(t *testing.T) {
 	// Create a corrupted JSON file
 	queuePath := filepath.Join(tempDir, "queue")
 	corruptedPath := filepath.Join(queuePath, "corrupted.json")
-	if err := os.WriteFile(corruptedPath, []byte("{invalid json}"), 0644); err != nil {
+	if err := os.WriteFile(corruptedPath, []byte("{invalid json}"), 0o644); err != nil {
 		t.Fatalf("Failed to create corrupted file: %v", err)
 	}
 

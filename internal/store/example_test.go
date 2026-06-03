@@ -3,7 +3,6 @@ package store_test
 import (
 	"context"
 	"fmt"
-	"log"
 	"os"
 	"path/filepath"
 	"time"
@@ -19,14 +18,16 @@ func Example_jsonStore() {
 	// Create a temporary directory for this example
 	tmpDir, err := os.MkdirTemp("", "kaimi-example")
 	if err != nil {
-		log.Fatal(err)
+		panic(err)
 	}
-	defer os.RemoveAll(tmpDir)
+	defer func() {
+		_ = os.RemoveAll(tmpDir)
+	}()
 
 	// Create a new JSONStore
 	s, err := store.NewJSONStore(tmpDir)
 	if err != nil {
-		log.Fatal(err)
+		panic(err)
 	}
 
 	ctx := context.Background()
@@ -53,13 +54,13 @@ func Example_jsonStore() {
 	}
 
 	if err := s.Save(ctx, opp); err != nil {
-		log.Fatal(err)
+		panic(err)
 	}
 
 	// Retrieve the opportunity
 	retrieved, err := s.Get(ctx, "EXAMPLE-001")
 	if err != nil {
-		log.Fatal(err)
+		panic(err)
 	}
 
 	fmt.Printf("Retrieved: %s\n", retrieved.Title)
@@ -67,7 +68,7 @@ func Example_jsonStore() {
 	// List all opportunities
 	all, err := s.List(ctx, nil)
 	if err != nil {
-		log.Fatal(err)
+		panic(err)
 	}
 
 	fmt.Printf("Total opportunities: %d\n", len(all))
@@ -76,7 +77,7 @@ func Example_jsonStore() {
 	highScore := &store.Filter{MinScore: 0.8}
 	highScoring, err := s.List(ctx, highScore)
 	if err != nil {
-		log.Fatal(err)
+		panic(err)
 	}
 
 	fmt.Printf("High-scoring opportunities: %d\n", len(highScoring))
@@ -100,9 +101,11 @@ func Example_jsonStore() {
 func Example_swappableImplementation() {
 	tmpDir, err := os.MkdirTemp("", "kaimi-swap-example")
 	if err != nil {
-		log.Fatal(err)
+		panic(err)
 	}
-	defer os.RemoveAll(tmpDir)
+	defer func() {
+		_ = os.RemoveAll(tmpDir)
+	}()
 
 	ctx := context.Background()
 
@@ -110,7 +113,7 @@ func Example_swappableImplementation() {
 	var s store.Store
 	s, err = store.NewJSONStore(tmpDir)
 	if err != nil {
-		log.Fatal(err)
+		panic(err)
 	}
 
 	// This code will work identically when s is a Firestore implementation
@@ -124,12 +127,12 @@ func Example_swappableImplementation() {
 	}
 
 	if err := s.Save(ctx, opp); err != nil {
-		log.Fatal(err)
+		panic(err)
 	}
 
 	retrieved, err := s.Get(ctx, "SWAP-001")
 	if err != nil {
-		log.Fatal(err)
+		panic(err)
 	}
 
 	fmt.Printf("Implementation: JSONStore\n")

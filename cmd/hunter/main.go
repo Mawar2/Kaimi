@@ -54,7 +54,7 @@ func run() error {
 	config := parseConfig()
 
 	// Validate configuration
-	if err := validateConfig(config); err != nil {
+	if err := validateConfig(&config); err != nil {
 		return fmt.Errorf("invalid configuration: %w", err)
 	}
 
@@ -154,7 +154,7 @@ func parseConfig() Config {
 }
 
 // validateConfig validates the configuration.
-func validateConfig(config Config) error {
+func validateConfig(config *Config) error {
 	// Validate mode
 	if config.Mode != "cached" && config.Mode != "live" {
 		return fmt.Errorf("mode must be 'cached' or 'live', got: %s", config.Mode)

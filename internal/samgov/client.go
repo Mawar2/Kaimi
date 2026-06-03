@@ -113,7 +113,8 @@ func (c *cachedClient) FetchByNAICS(ctx context.Context, naicsCodes []string) ([
 
 	// Filter and transform opportunities
 	var opportunities []*opportunity.Opportunity
-	for _, oppData := range c.fixtureData.OpportunitiesData {
+	for i := range c.fixtureData.OpportunitiesData {
+		oppData := &c.fixtureData.OpportunitiesData[i]
 		// Check if this opportunity matches any requested NAICS code
 		if !naicsSet[oppData.NAICSCode] {
 			// Also check naicsCodes array
@@ -130,7 +131,7 @@ func (c *cachedClient) FetchByNAICS(ctx context.Context, naicsCodes []string) ([
 		}
 
 		// Transform to Opportunity struct
-		opp, err := transformOpportunity(&oppData)
+		opp, err := transformOpportunity(oppData)
 		if err != nil {
 			// Log error but continue processing other opportunities
 			fmt.Fprintf(os.Stderr, "Warning: failed to transform opportunity %s: %v\n", oppData.NoticeID, err)
@@ -150,9 +151,10 @@ func (c *cachedClient) FetchByID(ctx context.Context, noticeID string) (*opportu
 	}
 
 	// Search for the opportunity in cached data
-	for _, oppData := range c.fixtureData.OpportunitiesData {
+	for i := range c.fixtureData.OpportunitiesData {
+		oppData := &c.fixtureData.OpportunitiesData[i]
 		if oppData.NoticeID == noticeID {
-			return transformOpportunity(&oppData)
+			return transformOpportunity(oppData)
 		}
 	}
 
@@ -223,7 +225,7 @@ func (l *liveClient) fetchByNAICSCode(ctx context.Context, naicsCode string) ([]
 			l.baseURL, naicsCode, limit, offset, l.apiKey)
 
 		// Make HTTP request
-		req, err := http.NewRequestWithContext(ctx, "GET", url, nil)
+		req, err := http.NewRequestWithContext(ctx, "GET", url, http.NoBody)
 		if err != nil {
 			return nil, fmt.Errorf("failed to create request: %w", err)
 		}
@@ -232,23 +234,30 @@ func (l *liveClient) fetchByNAICSCode(ctx context.Context, naicsCode string) ([]
 		if err != nil {
 			return nil, fmt.Errorf("failed to execute request: %w", err)
 		}
-		defer resp.Body.Close()
 
 		// Check response status
 		if resp.StatusCode != http.StatusOK {
 			body, _ := io.ReadAll(resp.Body)
+			_ = resp.Body.Close()
 			return nil, fmt.Errorf("SAM.gov API returned status %d: %s", resp.StatusCode, string(body))
 		}
 
 		// Parse response
 		var response samgovResponse
 		if err := json.NewDecoder(resp.Body).Decode(&response); err != nil {
+			_ = resp.Body.Close()
 			return nil, fmt.Errorf("failed to parse response: %w", err)
 		}
 
+		// Close response body immediately after use
+		if closeErr := resp.Body.Close(); closeErr != nil {
+			fmt.Fprintf(os.Stderr, "Warning: failed to close response body: %v\n", closeErr)
+		}
+
 		// Transform opportunities
-		for _, oppData := range response.OpportunitiesData {
-			opp, err := transformOpportunity(&oppData)
+		for i := range response.OpportunitiesData {
+			oppData := &response.OpportunitiesData[i]
+			opp, err := transformOpportunity(oppData)
 			if err != nil {
 				// Log error but continue processing
 				fmt.Fprintf(os.Stderr, "Warning: failed to transform opportunity %s: %v\n", oppData.NoticeID, err)
@@ -280,7 +289,7 @@ func (l *liveClient) FetchByID(ctx context.Context, noticeID string) (*opportuni
 	url := fmt.Sprintf("%s/search?noticeid=%s&api_key=%s", l.baseURL, noticeID, l.apiKey)
 
 	// Make HTTP request
-	req, err := http.NewRequestWithContext(ctx, "GET", url, nil)
+	req, err := http.NewRequestWithContext(ctx, "GET", url, http.NoBody)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create request: %w", err)
 	}
@@ -289,7 +298,11 @@ func (l *liveClient) FetchByID(ctx context.Context, noticeID string) (*opportuni
 	if err != nil {
 		return nil, fmt.Errorf("failed to execute request: %w", err)
 	}
-	defer resp.Body.Close()
+	defer func() {
+		if closeErr := resp.Body.Close(); closeErr != nil {
+			fmt.Fprintf(os.Stderr, "Warning: failed to close response body: %v\n", closeErr)
+		}
+	}()
 
 	// Check response status
 	if resp.StatusCode != http.StatusOK {
