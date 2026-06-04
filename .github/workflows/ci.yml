@@ -218,12 +218,9 @@ jobs:
           const review = `${{ steps.review.outputs.review }}`;
           const diffSize = `${{ steps.diff.outputs.diff_size }}`;
 
-          const body = `## 🤖 AI Code Review (Gemini 2.0)
-
-${review}
-
----
-*Diff size: ${diffSize} bytes | Reviewed by Gemini 2.0 Flash*`;
+          const body = "## 🤖 AI Code Review (Gemini 2.0)\n\n" +
+                       review +
+                       "\n\n---\n*Diff size: " + diffSize + " bytes | Reviewed by Gemini 2.0 Flash*";
 
           await github.rest.issues.createComment({
             owner: context.repo.owner,
