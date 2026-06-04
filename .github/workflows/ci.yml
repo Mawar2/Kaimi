@@ -142,10 +142,100 @@ jobs:
             }
           }
 
+  ai-code-review:
+    name: AI Code Review
+    runs-on: ubuntu-latest
+    if: |
+      github.event_name == 'pull_request' &&
+      (github.event.pull_request.head.repo.full_name == github.repository) &&
+      github.repository == 'Mawar2/Kaimi'
+
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+      with:
+        fetch-depth: 0
+
+    - name: Authenticate to Google Cloud
+      uses: google-github-actions/auth@v2
+      with:
+        credentials_json: ${{ secrets.GCP_SA_KEY }}
+
+    - name: Set up Cloud SDK
+      uses: google-github-actions/setup-gcloud@v2
+      with:
+        project_id: ${{ secrets.GCP_PROJECT_ID }}
+
+    - name: Get Gemini API key from Secret Manager
+      id: gemini-key
+      run: |
+        API_KEY=$(gcloud secrets versions access latest \
+          --secret="google-ai-studio-api-key" \
+          --project=${{ secrets.GCP_PROJECT_ID }})
+        echo "::add-mask::$API_KEY"
+        echo "api_key=$API_KEY" >> $GITHUB_OUTPUT
+
+    - name: Get PR diff
+      id: diff
+      run: |
+        git fetch origin ${{ github.base_ref }}
+        git diff origin/${{ github.base_ref }}...HEAD > pr.diff
+
+        # Escape for JSON and limit size
+        DIFF=$(cat pr.diff | head -c 50000)
+        echo "diff_size=$(wc -c < pr.diff)" >> $GITHUB_OUTPUT
+
+    - name: AI Review with Gemini
+      id: review
+      run: |
+        DIFF=$(cat pr.diff | head -c 50000 | jq -Rs .)
+
+        RESPONSE=$(curl -s -X POST \
+          "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash-exp:generateContent?key=${{ steps.gemini-key.outputs.api_key }}" \
+          -H 'Content-Type: application/json' \
+          -d "{
+            \"contents\": [{
+              \"parts\": [{
+                \"text\": \"You are an expert Go code reviewer. Review this pull request diff for:\\n\\n1. **Bugs & Logic Errors**: Incorrect logic, edge cases, nil pointer risks\\n2. **Security Issues**: SQL injection, XSS, command injection, secrets in code, OWASP Top 10\\n3. **Performance**: Inefficient algorithms, unnecessary allocations, goroutine leaks\\n4. **Go Best Practices**: Idiomatic Go, error handling, context usage, concurrency\\n5. **Test Coverage**: Missing tests for new code, edge cases not covered\\n\\nPR Diff:\\n${DIFF}\\n\\nProvide specific, actionable feedback. For each issue, specify the file and approximate line number. If the code looks good, say so briefly.\"
+              }]
+            }],
+            \"generationConfig\": {
+              \"temperature\": 0.2,
+              \"maxOutputTokens\": 8192
+            }
+          }")
+
+        REVIEW=$(echo "$RESPONSE" | jq -r '.candidates[0].content.parts[0].text // "Error: No review generated"')
+
+        echo "review<<EOF" >> $GITHUB_OUTPUT
+        echo "$REVIEW" >> $GITHUB_OUTPUT
+        echo "EOF" >> $GITHUB_OUTPUT
+
+    - name: Post review comment
+      uses: actions/github-script@v7
+      with:
+        script: |
+          const review = `${{ steps.review.outputs.review }}`;
+          const diffSize = `${{ steps.diff.outputs.diff_size }}`;
+
+          const body = `## 🤖 AI Code Review (Gemini 2.0)
+
+${review}
+
+---
+*Diff size: ${diffSize} bytes | Reviewed by Gemini 2.0 Flash*`;
+
+          await github.rest.issues.createComment({
+            owner: context.repo.owner,
+            repo: context.repo.repo,
+            issue_number: context.payload.pull_request.number,
+            body: body
+          });
+
   all-checks-pass:
     name: All Checks Passed
     runs-on: ubuntu-latest
-    needs: [test, lint, verify-gcp, verify-acceptance-criteria]
+    needs: [test, lint, verify-gcp, verify-acceptance-criteria, ai-code-review]
     if: always()
 
     steps:
@@ -171,6 +261,12 @@ jobs:
         # verify-acceptance-criteria can be skipped (on direct push) but not failed
         if [[ "${{ needs.verify-acceptance-criteria.result }}" == "failure" ]]; then
           echo "::error::Acceptance criteria verification failed"
+          exit 1
+        fi
+
+        # ai-code-review can be skipped (on forks, direct push, or missing secrets) but not failed
+        if [[ "${{ needs.ai-code-review.result }}" == "failure" ]]; then
+          echo "::error::AI code review failed"
           exit 1
         fi
 
