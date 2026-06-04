@@ -219,7 +219,7 @@ jobs:
 
         echo "Calling Gemini API..."
         RESPONSE=$(curl -s -X POST \
-          "https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-pro-002:generateContent?key=${{ steps.gemini-key.outputs.api_key }}" \
+          "https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-pro:generateContent?key=${{ steps.gemini-key.outputs.api_key }}" \
           -H 'Content-Type: application/json' \
           -d "$PAYLOAD")
 

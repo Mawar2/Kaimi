@@ -115,7 +115,7 @@ Every pull request triggers an AI code review job (`.github/workflows/ci.yml` - 
 - If you disagree with a suggestion, document why in a PR comment
 
 **Technical details:**
-- Model: Gemini 1.5 Pro (`gemini-1.5-pro-002`)
+- Model: Gemini 1.5 Pro (`gemini-1.5-pro`)
 - Why this model: Best for code review - strong reasoning, catches subtle bugs, enforces rules
 - API Key: Stored in GCP Secret Manager as `google-ai-studio-api-key`
 - Cost: Free (Gemini free tier: 15 requests/min)
