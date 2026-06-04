@@ -168,16 +168,21 @@ jobs:
         fetch-depth: 0
 
     - name: Authenticate to Google Cloud
-      id: auth
       uses: google-github-actions/auth@v3
       with:
         credentials_json: ${{ secrets.GCP_SA_KEY }}
-        token_format: access_token
 
     - name: Set up Cloud SDK
       uses: google-github-actions/setup-gcloud@v3
       with:
         project_id: ${{ secrets.GCP_PROJECT_ID }}
+
+    - name: Get access token for Vertex AI
+      id: auth
+      run: |
+        TOKEN=$(gcloud auth print-access-token)
+        echo "::add-mask::$TOKEN"
+        echo "access_token=$TOKEN" >> $GITHUB_OUTPUT
 
     - name: Get PR diff
       id: diff
