@@ -55,9 +55,55 @@ Local ticket files are also maintained:
 - `kaimi_malik_tickets.md` - Malik's ticket tracking
 - `kaimi_timm_tickets.md` - Timm's ticket tracking
 
+## AI Code Review in CI/CD
+
+The project has an **automated AI code review** system integrated into the CI/CD pipeline.
+
+### How It Works
+
+Every pull request triggers an AI code review that:
+1. Authenticates to GCP and retrieves the Gemini API key from Secret Manager
+2. Gets the PR diff (limited to 50KB)
+3. Sends the diff to **Gemini 2.0 Flash** for review
+4. AI reviews for:
+   - Bugs and logic errors
+   - Security vulnerabilities (OWASP Top 10)
+   - Performance issues
+   - Go best practices and idioms
+   - Test coverage gaps
+5. Posts review feedback as a PR comment
+6. **Required gate** - must complete before merge
+
+### Workflow Integration
+
+This aligns with the team's **Definition of Done**:
+> ✓ AI sub-agent review done and its report addressed
+
+- The AI review is **required** but not **blocking** based on findings
+- Developer must see the feedback (gate ensures review completes)
+- Developer + human reviewer decide what to fix
+- Not all AI suggestions must be addressed, but they must be considered
+
+### Technical Details
+
+- **Model**: Gemini 2.0 Flash Experimental (`gemini-2.0-flash-exp`)
+- **API Key**: Stored in GCP Secret Manager as `google-ai-studio-api-key`
+- **Cost**: Free (Gemini free tier: 15 requests/min)
+- **Workflow**: `.github/workflows/ci.yml` - `ai-code-review` job
+- **Runs on**: Every PR from non-fork branches (requires GCP secrets)
+
+### For Claude Agents
+
+When working on code changes:
+- The AI review will run automatically when you create a PR
+- Review its feedback and either fix issues or explain why they're false positives
+- Do not skip or bypass this gate - it's part of the team's quality process
+- If the review finds critical security issues, prioritize fixing them
+
 ## Tips for Claude Sessions
 
 - Always check the current git status and recent commits for context
 - Reference issue numbers when making commits (format: `<issue#>_description`)
 - Use the GitHub MCP server to fetch fresh issue data when needed
 - The project is built in Go and uses Google Cloud Platform (GCP) services
+- All PRs will be reviewed by AI - expect and address feedback as part of the workflow
