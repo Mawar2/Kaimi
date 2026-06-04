@@ -205,6 +205,7 @@ jobs:
           --arg diff "$DIFF_TEXT" \
           '{
             contents: [{
+              role: "user",
               parts: [{
                 text: "You are an expert Go code reviewer. Review this pull request diff for:\n\n1. **Bugs & Logic Errors**: Incorrect logic, edge cases, nil pointer risks\n2. **Security Issues**: SQL injection, XSS, command injection, secrets in code, OWASP Top 10\n3. **Performance**: Inefficient algorithms, unnecessary allocations, goroutine leaks\n4. **Go Best Practices**: Idiomatic Go, error handling, context usage, concurrency\n5. **Test Coverage**: Missing tests for new code, edge cases not covered\n\nPR Diff:\n\($diff)\n\nProvide specific, actionable feedback. For each issue, specify the file and approximate line number. If the code looks good, say so briefly."
               }]
