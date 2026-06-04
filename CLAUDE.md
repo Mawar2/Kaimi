@@ -115,10 +115,12 @@ Every pull request triggers an AI code review job (`.github/workflows/ci.yml` - 
 - If you disagree with a suggestion, document why in a PR comment
 
 **Technical details:**
+- Platform: **Vertex AI** (Google Cloud's enterprise AI platform)
 - Model: Gemini 2.5 Pro (`gemini-2.5-pro`) - June 2025 stable release
 - Why this model: Best for code review - has **thinking capability** for deep reasoning, catches subtle bugs, enforces rules strictly
-- API Key: Stored in GCP Secret Manager as `google-ai-studio-api-key`
-- Cost: Free (Gemini free tier: 15 requests/min)
+- Authentication: GCP service account (same as other GCP services)
+- Region: us-east4 (same as other Kaimi infrastructure)
+- Cost: Pay-as-you-go (first 50 requests/day free)
 - Runs on: Every PR from non-fork branches
 
 ## AI Sub-Agent Review Protocol (from WORKFLOW.md)
