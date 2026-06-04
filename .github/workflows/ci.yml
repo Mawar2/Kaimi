@@ -301,7 +301,7 @@ jobs:
         fi
 
         # ai-code-review can be skipped (on forks, direct push, or missing secrets) but not failed
-        if [[ "${{ needs.ai-code-review.result }}" == "failure" ]]; then
+        if [[ "${{ needs.ai-code-review.result }}" != "success" && "${{ needs.ai-code-review.result }}" != "skipped" ]]; then
           echo "::error::AI code review failed"
           exit 1
         fi
