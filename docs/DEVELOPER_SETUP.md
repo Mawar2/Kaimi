@@ -114,7 +114,27 @@ cd Kaimi
 go mod download
 ```
 
-### 3. Verify Setup
+### 3. Setup Environment Variables (Automated)
+
+Run the setup script to automatically fetch API keys from Secret Manager:
+
+**On Windows:**
+```cmd
+scripts\setup-env.bat
+```
+
+**On Mac/Linux:**
+```bash
+chmod +x scripts/setup-env.sh
+./scripts/setup-env.sh
+```
+
+This will automatically:
+- Verify your GCP authentication
+- Fetch API keys from Secret Manager
+- Create your `.env` file with all necessary secrets
+
+### 4. Verify Setup
 
 ```bash
 # Run tests
@@ -133,16 +153,19 @@ All commands should complete successfully.
 
 ## Environment Configuration
 
-### Local Environment Variables
+### Automated Setup (Recommended)
 
-Create a `.env` file in the project root for local development:
+Use the setup scripts in the `scripts/` directory:
+- `scripts/setup-env.bat` (Windows)
+- `scripts/setup-env.sh` (Mac/Linux)
 
-```bash
-# Copy the example file
-cp .env.example .env
-```
+See [scripts/README.md](../scripts/README.md) for details.
 
-#### Option 1: Retrieve API Keys from Secret Manager (Recommended)
+### Manual Setup
+
+If you prefer to set up manually:
+
+#### Option 1: Retrieve API Keys from Secret Manager
 
 You can fetch API keys directly from GCP Secret Manager:
 
