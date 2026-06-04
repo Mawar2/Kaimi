@@ -219,7 +219,7 @@ jobs:
 
         echo "Calling Gemini API..."
         RESPONSE=$(curl -s -X POST \
-          "https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-pro:generateContent?key=${{ steps.gemini-key.outputs.api_key }}" \
+          "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-pro:generateContent?key=${{ steps.gemini-key.outputs.api_key }}" \
           -H 'Content-Type: application/json' \
           -d "$PAYLOAD")
 
@@ -251,9 +251,9 @@ jobs:
           const review = process.env.REVIEW_TEXT;
           const diffSize = process.env.DIFF_SIZE;
 
-          const body = "## 🤖 AI Code Review (Gemini 1.5 Pro)\n\n" +
+          const body = "## 🤖 AI Code Review (Gemini 2.5 Pro)\n\n" +
                        review +
-                       "\n\n---\n*Diff size: " + diffSize + " bytes | Reviewed by Gemini 1.5 Pro*";
+                       "\n\n---\n*Diff size: " + diffSize + " bytes | Reviewed by Gemini 2.5 Pro with thinking*";
 
           await github.rest.issues.createComment({
             owner: context.repo.owner,
