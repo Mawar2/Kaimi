@@ -168,23 +168,16 @@ jobs:
         fetch-depth: 0
 
     - name: Authenticate to Google Cloud
+      id: auth
       uses: google-github-actions/auth@v3
       with:
         credentials_json: ${{ secrets.GCP_SA_KEY }}
+        token_format: access_token
 
     - name: Set up Cloud SDK
       uses: google-github-actions/setup-gcloud@v3
       with:
         project_id: ${{ secrets.GCP_PROJECT_ID }}
-
-    - name: Get Gemini API key from Secret Manager
-      id: gemini-key
-      run: |
-        API_KEY=$(gcloud secrets versions access latest \
-          --secret="google-ai-studio-api-key" \
-          --project=${{ secrets.GCP_PROJECT_ID }})
-        echo "::add-mask::$API_KEY"
-        echo "api_key=$API_KEY" >> $GITHUB_OUTPUT
 
     - name: Get PR diff
       id: diff
@@ -217,9 +210,10 @@ jobs:
             }
           }')
 
-        echo "Calling Gemini API..."
+        echo "Calling Vertex AI Gemini API..."
         RESPONSE=$(curl -s -X POST \
-          "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-pro:generateContent?key=${{ steps.gemini-key.outputs.api_key }}" \
+          "https://${{ secrets.GCP_REGION }}-aiplatform.googleapis.com/v1/projects/${{ secrets.GCP_PROJECT_ID }}/locations/${{ secrets.GCP_REGION }}/publishers/google/models/gemini-2.5-pro:generateContent" \
+          -H "Authorization: Bearer ${{ steps.auth.outputs.access_token }}" \
           -H 'Content-Type: application/json' \
           -d "$PAYLOAD")
 
