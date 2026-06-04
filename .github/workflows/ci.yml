@@ -213,10 +213,13 @@ jobs:
 
     - name: Post review comment
       uses: actions/github-script@v7
+      env:
+        REVIEW_TEXT: ${{ steps.review.outputs.review }}
+        DIFF_SIZE: ${{ steps.diff.outputs.diff_size }}
       with:
         script: |
-          const review = `${{ steps.review.outputs.review }}`;
-          const diffSize = `${{ steps.diff.outputs.diff_size }}`;
+          const review = process.env.REVIEW_TEXT;
+          const diffSize = process.env.DIFF_SIZE;
 
           const body = "## 🤖 AI Code Review (Gemini 2.0)\n\n" +
                        review +
