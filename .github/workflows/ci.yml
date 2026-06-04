@@ -190,6 +190,7 @@ jobs:
       run: |
         DIFF=$(cat pr.diff | head -c 50000 | jq -Rs .)
 
+        echo "Calling Gemini API..."
         RESPONSE=$(curl -s -X POST \
           "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash-exp:generateContent?key=${{ steps.gemini-key.outputs.api_key }}" \
           -H 'Content-Type: application/json' \
@@ -205,7 +206,19 @@ jobs:
             }
           }")
 
+        # Check for API errors
+        if echo "$RESPONSE" | jq -e '.error' > /dev/null; then
+          echo "::error::Gemini API error: $(echo "$RESPONSE" | jq -r '.error.message')"
+          echo "Full response: $RESPONSE"
+          exit 1
+        fi
+
         REVIEW=$(echo "$RESPONSE" | jq -r '.candidates[0].content.parts[0].text // "Error: No review generated"')
+
+        if [ "$REVIEW" == "Error: No review generated" ]; then
+          echo "::warning::No review text in response"
+          echo "Response: $RESPONSE"
+        fi
 
         echo "review<<EOF" >> $GITHUB_OUTPUT
         echo "$REVIEW" >> $GITHUB_OUTPUT
