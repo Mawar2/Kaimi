@@ -57,12 +57,14 @@ func LoadProfile(path string) (*CapabilityProfile, error) {
 	var prof CapabilityProfile
 	ext := strings.ToLower(filepath.Ext(path))
 	if ext == ".yaml" || ext == ".yml" {
-		if err := yaml.Unmarshal(data, &prof); err != nil {
+		err = yaml.Unmarshal(data, &prof)
+		if err != nil {
 			return nil, fmt.Errorf("failed to unmarshal YAML profile: %w", err)
 		}
 	} else {
 		// Default to JSON
-		if err := json.Unmarshal(data, &prof); err != nil {
+		err = json.Unmarshal(data, &prof)
+		if err != nil {
 			return nil, fmt.Errorf("failed to unmarshal JSON profile: %w", err)
 		}
 	}
