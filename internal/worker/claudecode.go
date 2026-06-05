@@ -3,6 +3,8 @@ package worker
 import (
 	"context"
 	"fmt"
+	"regexp"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -19,14 +21,14 @@ import (
 // Phase 1: Uses Claude Code CLI as the backend (local, free)
 // Phase 2+: Can use other backends (Antigravity, Vertex AI) via LLMBackend abstraction
 type ClaudeCodeWorker struct {
-	id              string               // Unique worker identifier
-	tier            taskqueue.Tier       // Worker tier (determines which tasks to claim)
-	queue           taskqueue.TaskQueue  // Queue to claim tasks from
-	backend         llm.LLMBackend       // LLM backend for code generation
-	projectRootPath string               // Root directory where projects are checked out
-	tasksCompleted  int                  // Number of tasks successfully completed
-	tasksFailed     int                  // Number of tasks failed
-	mu              sync.Mutex           // Protects stats (tasksCompleted, tasksFailed)
+	id              string              // Unique worker identifier
+	tier            taskqueue.Tier      // Worker tier (determines which tasks to claim)
+	queue           taskqueue.TaskQueue // Queue to claim tasks from
+	backend         llm.LLMBackend      // LLM backend for code generation
+	projectRootPath string              // Root directory where projects are checked out
+	tasksCompleted  int                 // Number of tasks successfully completed
+	tasksFailed     int                 // Number of tasks failed
+	mu              sync.Mutex          // Protects stats (tasksCompleted, tasksFailed)
 }
 
 // NewClaudeCodeWorker creates a new ClaudeCodeWorker instance.
@@ -211,37 +213,37 @@ func (w *ClaudeCodeWorker) buildPrompt(task *taskqueue.Task, ruleset *convention
 
 	// Task details
 	sb.WriteString("## TASK DETAILS\n\n")
-	sb.WriteString(fmt.Sprintf("**Repository:** %s/%s\n", task.RepoOwner, task.RepoName))
-	sb.WriteString(fmt.Sprintf("**Issue #%d:** %s\n\n", task.IssueNumber, task.Title))
+	fmt.Fprintf(&sb, "**Repository:** %s/%s\n", task.RepoOwner, task.RepoName)
+	fmt.Fprintf(&sb, "**Issue #%d:** %s\n\n", task.IssueNumber, task.Title)
 	sb.WriteString("**Description:**\n")
 	sb.WriteString(task.Description)
 	sb.WriteString("\n\n")
 
 	// Project conventions
 	sb.WriteString("## PROJECT CONVENTIONS\n\n")
-	sb.WriteString(fmt.Sprintf("**Project Path:** %s\n\n", ruleset.ProjectPath))
+	fmt.Fprintf(&sb, "**Project Path:** %s\n\n", ruleset.ProjectPath)
 
 	if ruleset.HasBranchPattern() {
-		sb.WriteString(fmt.Sprintf("**Branch Naming Pattern:** %s\n", ruleset.BranchPattern))
-		sb.WriteString(fmt.Sprintf("Example: Replace {ticket} with issue number, {summary} with brief description\n\n"))
+		fmt.Fprintf(&sb, "**Branch Naming Pattern:** %s\n", ruleset.BranchPattern)
+		sb.WriteString("Example: Replace {ticket} with issue number, {summary} with brief description\n\n")
 	}
 
 	if ruleset.HasCommitPattern() {
-		sb.WriteString(fmt.Sprintf("**Commit Message Format:** %s\n", ruleset.CommitPattern))
-		sb.WriteString(fmt.Sprintf("Example: Replace {ticket} with issue number, {description} with change summary\n\n"))
+		fmt.Fprintf(&sb, "**Commit Message Format:** %s\n", ruleset.CommitPattern)
+		sb.WriteString("Example: Replace {ticket} with issue number, {description} with change summary\n\n")
 	}
 
 	if len(ruleset.ForbiddenFiles) > 0 {
 		sb.WriteString("**Forbidden Files:** Do NOT create these files:\n")
 		for _, file := range ruleset.ForbiddenFiles {
-			sb.WriteString(fmt.Sprintf("  - %s\n", file))
+			fmt.Fprintf(&sb, "  - %s\n", file)
 		}
 		sb.WriteString("\n")
 	}
 
-	sb.WriteString(fmt.Sprintf("**Test Command:** %s\n", ruleset.TestCommand))
-	sb.WriteString(fmt.Sprintf("**Lint Command:** %s\n", ruleset.LintCommand))
-	sb.WriteString(fmt.Sprintf("**Format Command:** %s\n\n", ruleset.FormatCommand))
+	fmt.Fprintf(&sb, "**Test Command:** %s\n", ruleset.TestCommand)
+	fmt.Fprintf(&sb, "**Lint Command:** %s\n", ruleset.LintCommand)
+	fmt.Fprintf(&sb, "**Format Command:** %s\n\n", ruleset.FormatCommand)
 
 	if ruleset.TDDRequired {
 		sb.WriteString("**TDD REQUIRED:** You MUST write tests BEFORE implementation code.\n")
@@ -254,10 +256,10 @@ func (w *ClaudeCodeWorker) buildPrompt(task *taskqueue.Task, ruleset *convention
 
 	sb.WriteString("1. **Create Feature Branch**\n")
 	if ruleset.HasBranchPattern() {
-		sb.WriteString(fmt.Sprintf("   - Use the branch pattern: %s\n", ruleset.BranchPattern))
-		sb.WriteString(fmt.Sprintf("   - For this task: Replace {ticket} with %d\n", task.IssueNumber))
+		fmt.Fprintf(&sb, "   - Use the branch pattern: %s\n", ruleset.BranchPattern)
+		fmt.Fprintf(&sb, "   - For this task: Replace {ticket} with %d\n", task.IssueNumber)
 	} else {
-		sb.WriteString(fmt.Sprintf("   - Create branch: feature/issue-%d-<brief-summary>\n", task.IssueNumber))
+		fmt.Fprintf(&sb, "   - Create branch: feature/issue-%d-<brief-summary>\n", task.IssueNumber)
 	}
 	sb.WriteString("\n")
 
@@ -274,9 +276,9 @@ func (w *ClaudeCodeWorker) buildPrompt(task *taskqueue.Task, ruleset *convention
 	sb.WriteString("\n")
 
 	sb.WriteString("3. **Run Quality Checks**\n")
-	sb.WriteString(fmt.Sprintf("   - Run tests: %s\n", ruleset.TestCommand))
-	sb.WriteString(fmt.Sprintf("   - Run linter: %s\n", ruleset.LintCommand))
-	sb.WriteString(fmt.Sprintf("   - Run formatter: %s\n", ruleset.FormatCommand))
+	fmt.Fprintf(&sb, "   - Run tests: %s\n", ruleset.TestCommand)
+	fmt.Fprintf(&sb, "   - Run linter: %s\n", ruleset.LintCommand)
+	fmt.Fprintf(&sb, "   - Run formatter: %s\n", ruleset.FormatCommand)
 	sb.WriteString("   - Fix any failures before proceeding\n")
 	sb.WriteString("\n")
 
@@ -286,10 +288,15 @@ func (w *ClaudeCodeWorker) buildPrompt(task *taskqueue.Task, ruleset *convention
 	sb.WriteString("   - Include testing evidence (test names, coverage)\n")
 	sb.WriteString("\n")
 
-	sb.WriteString("5. **Report Results**\n")
-	sb.WriteString("   - In your response, include:\n")
-	sb.WriteString("     Branch: <branch-name>\n")
-	sb.WriteString("     PR: #<pr-number>\n")
+	sb.WriteString("5. **Complete the Work and Report Results**\n")
+	sb.WriteString("   - Create a feature branch following the project's naming pattern\n")
+	sb.WriteString("   - Implement the solution (TDD if required)\n")
+	sb.WriteString("   - Run tests and linter (must pass)\n")
+	sb.WriteString("   - Create a pull request\n")
+	sb.WriteString("   - At the END of your response, report:\n")
+	sb.WriteString("     BRANCH: <actual-branch-name-you-created>\n")
+	sb.WriteString("     PR: #<actual-pr-number-you-created>\n")
+	sb.WriteString("   - These MUST be real values, not placeholders\n")
 	sb.WriteString("\n")
 
 	// Final notes
@@ -332,84 +339,86 @@ func (w *ClaudeCodeWorker) failResult(task *taskqueue.Task, err error) *Result {
 	}
 }
 
-// extractBranchName extracts the branch name from an LLM response.
-// Looks for patterns like "Branch: feature/KAI-123-summary" or "Created branch: ..."
+// extractBranchName extracts the branch name from an LLM response using multiple strategies.
+// Tries multiple patterns in order of likelihood.
 func extractBranchName(response string) string {
-	// Try pattern: "Branch: <name>" or "branch: <name>"
-	lines := strings.Split(response, "\n")
-	for _, line := range lines {
-		line = strings.TrimSpace(line)
-		lower := strings.ToLower(line)
-
-		if strings.HasPrefix(lower, "branch:") {
-			parts := strings.SplitN(line, ":", 2)
-			if len(parts) == 2 {
-				return strings.TrimSpace(parts[1])
-			}
-		}
-
-		if strings.Contains(lower, "created branch") {
-			// Extract branch name after "created branch"
-			idx := strings.Index(lower, "created branch")
-			if idx >= 0 {
-				rest := line[idx+len("created branch"):]
-				rest = strings.TrimSpace(rest)
-				// Take first word (branch name)
-				fields := strings.Fields(rest)
-				if len(fields) > 0 {
-					return fields[0]
-				}
-			}
-		}
+	// Strategy 1: Explicit "BRANCH:" marker
+	if branch := extractPattern(response, `(?i)branch:\s*([^\s\n]+)`); branch != "" {
+		return branch
 	}
 
-	// Try pattern: Lines starting with feature/, fix/, etc.
-	for _, line := range lines {
-		line = strings.TrimSpace(line)
-		if strings.HasPrefix(line, "feature/") || strings.HasPrefix(line, "fix/") ||
-			strings.HasPrefix(line, "chore/") || strings.HasPrefix(line, "docs/") {
-			return line
-		}
+	// Strategy 2: Git command output "Switched to branch 'feature/...'"
+	if branch := extractPattern(response, `Switched to (?:a new )?branch '([^']+)'`); branch != "" {
+		return branch
+	}
+
+	// Strategy 3: "Created branch feature/..." format
+	if branch := extractPattern(response, `Created branch (feature/[^\s\n]+|fix/[^\s\n]+|chore/[^\s\n]+|docs/[^\s\n]+)`); branch != "" {
+		return branch
+	}
+
+	// Strategy 4: GitHub PR URL pattern (extract branch from URL)
+	if branch := extractPattern(response, `github\.com/[^/]+/[^/]+/tree/([^\s\n)]+)`); branch != "" {
+		return branch
+	}
+
+	// Strategy 5: PR description "Created PR from branch feature/..."
+	if branch := extractPattern(response, `from branch ([^\s\n]+)`); branch != "" {
+		return branch
+	}
+
+	// Strategy 6: Standalone branch name on its own line
+	if branch := extractPattern(response, `(?m)^(feature/[^\s\n]+|fix/[^\s\n]+|chore/[^\s\n]+|docs/[^\s\n]+)$`); branch != "" {
+		return branch
 	}
 
 	return ""
 }
 
-// extractPRNumber extracts the PR number from an LLM response.
-// Looks for patterns like "PR: #123" or "Pull Request: #456"
+// extractPRNumber extracts the PR number from an LLM response using multiple strategies.
+// Tries multiple patterns in order of likelihood.
 func extractPRNumber(response string) int {
-	lines := strings.Split(response, "\n")
-	for _, line := range lines {
-		line = strings.TrimSpace(line)
-		lower := strings.ToLower(line)
+	// Strategy 1: Explicit "PR: #123" marker
+	if num := extractIntPattern(response, `(?i)PR:\s*#?(\d+)`); num > 0 {
+		return num
+	}
 
-		// Pattern: "PR: #123" or "pr: #123"
-		if strings.HasPrefix(lower, "pr:") {
-			parts := strings.SplitN(line, ":", 2)
-			if len(parts) == 2 {
-				numStr := strings.TrimSpace(parts[1])
-				numStr = strings.TrimPrefix(numStr, "#")
-				var num int
-				if _, err := fmt.Sscanf(numStr, "%d", &num); err == nil {
-					return num
-				}
-			}
-		}
+	// Strategy 2: GitHub PR URL
+	if num := extractIntPattern(response, `github\.com/[^/]+/[^/]+/pull/(\d+)`); num > 0 {
+		return num
+	}
 
-		// Pattern: "Pull Request: #123" or "pull request #123"
-		if strings.Contains(lower, "pull request") {
-			// Find the # symbol and extract number after it
-			idx := strings.Index(line, "#")
-			if idx >= 0 {
-				numStr := line[idx+1:]
-				// Take digits only
-				var num int
-				if _, err := fmt.Sscanf(numStr, "%d", &num); err == nil {
-					return num
-				}
-			}
-		}
+	// Strategy 3: "Pull request #123" or "Pull Request: #123"
+	if num := extractIntPattern(response, `(?i)[Pp]ull [Rr]equest:?\s*#?(\d+)`); num > 0 {
+		return num
+	}
+
+	// Strategy 4: "Created Pull Request #123"
+	if num := extractIntPattern(response, `(?i)Created [Pp]ull [Rr]equest #?(\d+)`); num > 0 {
+		return num
 	}
 
 	return 0
+}
+
+// extractPattern extracts a string using regex pattern.
+// Returns the first captured group from the pattern.
+func extractPattern(text, pattern string) string {
+	re := regexp.MustCompile(pattern)
+	matches := re.FindStringSubmatch(text)
+	if len(matches) > 1 {
+		return strings.TrimSpace(matches[1])
+	}
+	return ""
+}
+
+// extractIntPattern extracts an integer using regex pattern.
+// Returns the parsed integer from the first captured group.
+func extractIntPattern(text, pattern string) int {
+	str := extractPattern(text, pattern)
+	if str == "" {
+		return 0
+	}
+	num, _ := strconv.Atoi(str)
+	return num
 }

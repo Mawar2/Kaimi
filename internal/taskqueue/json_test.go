@@ -36,11 +36,13 @@ func TestNewJSONQueue_DefaultDirectory(t *testing.T) {
 	if err != nil {
 		t.Fatalf("failed to get current directory: %v", err)
 	}
-	defer os.Chdir(oldCwd)
+	defer func() { _ = os.Chdir(oldCwd) }()
 
 	// Change to temp directory
 	dir := t.TempDir()
-	os.Chdir(dir)
+	if err := os.Chdir(dir); err != nil {
+		t.Fatalf("failed to change directory: %v", err)
+	}
 
 	queue, err := NewJSONQueue("")
 	if err != nil {
@@ -335,8 +337,12 @@ func TestDequeue_FiltersbyTier(t *testing.T) {
 		Tier:   TierGeminiPro,
 	}
 
-	queue.Enqueue(ctx, task1)
-	queue.Enqueue(ctx, task2)
+	if err := queue.Enqueue(ctx, task1); err != nil {
+		t.Fatalf("Enqueue task1 failed: %v", err)
+	}
+	if err := queue.Enqueue(ctx, task2); err != nil {
+		t.Fatalf("Enqueue task2 failed: %v", err)
+	}
 
 	// Dequeue from GeminiPro tier
 	claimed, err := queue.Dequeue(ctx, TierGeminiPro, "worker-1")
@@ -362,7 +368,9 @@ func TestDequeue_AtomicClaiming(t *testing.T) {
 		Status: StatusPending,
 		Tier:   TierGeminiFlash,
 	}
-	queue.Enqueue(ctx, task)
+	if err := queue.Enqueue(ctx, task); err != nil {
+		t.Fatalf("Enqueue failed: %v", err)
+	}
 
 	// Have multiple workers try to claim the same task concurrently
 	numWorkers := 10
@@ -445,7 +453,9 @@ func TestList_FilterByStatus(t *testing.T) {
 	}
 
 	for _, task := range tasks {
-		queue.Enqueue(ctx, task)
+		if err := queue.Enqueue(ctx, task); err != nil {
+			t.Fatalf("Enqueue failed: %v", err)
+		}
 	}
 
 	status := StatusPending
@@ -479,7 +489,9 @@ func TestList_FilterByTier(t *testing.T) {
 	}
 
 	for _, task := range tasks {
-		queue.Enqueue(ctx, task)
+		if err := queue.Enqueue(ctx, task); err != nil {
+			t.Fatalf("Enqueue failed: %v", err)
+		}
 	}
 
 	tier := TierGeminiPro
@@ -512,7 +524,9 @@ func TestList_FilterByRepoOwner(t *testing.T) {
 	}
 
 	for _, task := range tasks {
-		queue.Enqueue(ctx, task)
+		if err := queue.Enqueue(ctx, task); err != nil {
+			t.Fatalf("Enqueue failed: %v", err)
+		}
 	}
 
 	filter := &TaskFilter{RepoOwner: "Mawar2"}
@@ -545,7 +559,9 @@ func TestList_FilterByComplexity(t *testing.T) {
 	}
 
 	for _, task := range tasks {
-		queue.Enqueue(ctx, task)
+		if err := queue.Enqueue(ctx, task); err != nil {
+			t.Fatalf("Enqueue failed: %v", err)
+		}
 	}
 
 	complexity := ComplexityMedium
@@ -579,7 +595,9 @@ func TestList_MultipleFilters(t *testing.T) {
 	}
 
 	for _, task := range tasks {
-		queue.Enqueue(ctx, task)
+		if err := queue.Enqueue(ctx, task); err != nil {
+			t.Fatalf("Enqueue failed: %v", err)
+		}
 	}
 
 	status := StatusPending
@@ -616,7 +634,9 @@ func TestRelease(t *testing.T) {
 		Attempts: 1,
 	}
 
-	queue.Enqueue(ctx, task)
+	if err := queue.Enqueue(ctx, task); err != nil {
+		t.Fatalf("Enqueue failed: %v", err)
+	}
 
 	// Claim it
 	claimed, err := queue.Dequeue(ctx, TierGeminiFlash, "worker-1")

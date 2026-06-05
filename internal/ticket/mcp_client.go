@@ -48,10 +48,11 @@ func NewHTTPMCPClientFromEnv() (*HTTPMCPClient, error) {
 	return NewHTTPMCPClient(serverURL, authToken), nil
 }
 
-// mcpRequest represents the JSON-RPC style request sent to MCP server.
+// mcpRequest represents the JSON-RPC 2.0 style request sent to MCP server.
 type mcpRequest struct {
-	Tool   string                 `json:"tool"`
-	Params map[string]interface{} `json:"params"`
+	JSONRPC string                 `json:"jsonrpc"`
+	Tool    string                 `json:"tool"`
+	Params  map[string]interface{} `json:"params"`
 }
 
 // mcpResponse represents the response from MCP server.
@@ -75,8 +76,9 @@ type mcpError struct {
 func (c *HTTPMCPClient) Call(ctx context.Context, tool string, params map[string]interface{}) (interface{}, error) {
 	// Build request payload
 	reqPayload := mcpRequest{
-		Tool:   tool,
-		Params: params,
+		JSONRPC: "2.0",
+		Tool:    tool,
+		Params:  params,
 	}
 
 	reqBody, err := json.Marshal(reqPayload)
@@ -92,6 +94,7 @@ func (c *HTTPMCPClient) Call(ctx context.Context, tool string, params map[string
 
 	// Set headers
 	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Accept", "application/json, text/event-stream")
 	req.Header.Set("Authorization", "Bearer "+c.authToken)
 
 	// Send request
@@ -99,7 +102,7 @@ func (c *HTTPMCPClient) Call(ctx context.Context, tool string, params map[string
 	if err != nil {
 		return nil, fmt.Errorf("failed to send request: %w", err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	// Read response body
 	respBody, err := io.ReadAll(resp.Body)

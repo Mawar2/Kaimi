@@ -1,8 +1,10 @@
 package llm
 
 import (
+	"bytes"
 	"context"
 	"fmt"
+	"os/exec"
 )
 
 // ClaudeCodeBackend implements the LLMBackend interface using Claude Code CLI
@@ -23,9 +25,6 @@ type ClaudeCodeBackend struct {
 
 	// models is the list of Claude models available via Claude Code
 	models []string
-
-	// cliPath is the path to the Claude Code CLI executable (optional in Phase 1)
-	cliPath string
 
 	// maxTokens sets the context window limit for CLI invocations
 	maxTokens int
@@ -81,34 +80,37 @@ func (b *ClaudeCodeBackend) Execute(ctx context.Context, prompt string, model st
 		return "", fmt.Errorf("execute: unsupported model %q (supported: %v)", model, b.models)
 	}
 
-	// TODO(phase-1): Implement actual Claude Code CLI Task tool integration
-	// Steps to implement:
-	// 1. Validate CLI availability (check if claude-code is in PATH or use cliPath)
-	// 2. Create a context file with:
-	//    - GitHub repository details (owner, repo, branch)
-	//    - Project conventions (CLAUDE.md, CONVENTIONS.md, WORKFLOW.md)
-	//    - Task metadata (GitHub Issue number, acceptance criteria)
-	// 3. Invoke the Task tool via Claude Code CLI:
-	//    - `claude task "prompt with context" --model=<model>`
-	//    - Or use MCP if available for tighter integration
-	// 4. Capture stdout/stderr and parse results:
-	//    - Extract branch name (feature/KAI-XXX-summary format)
-	//    - Extract PR number (if PR was created)
-	//    - Collect execution logs
-	// 5. Return structured response:
-	//    - Agent output (logs, decisions made)
-	//    - Success indicator (task completed vs. failed)
-	//    - Any errors encountered
-	//
-	// Key constraints for Phase 1:
-	// - No parallelization yet (sequential agent spawning)
-	// - No retry logic (single attempt per Execute call)
-	// - No fallback to other backends (if CLI fails, task fails)
-	// - No resource limits (no CPU/memory constraints on agent processes)
-	//
-	// These will be added in Phase 2 as part of the full supervisor implementation.
+	// Convert model alias for CLI (sonnet/opus instead of full names)
+	modelAlias := model
+	switch model {
+	case "claude-sonnet-4.5", "claude-sonnet-4-5":
+		modelAlias = "sonnet"
+	case "claude-opus-4.6", "claude-opus-4-6":
+		modelAlias = "opus"
+	}
 
-	return "", fmt.Errorf("execute: Claude Code CLI Task tool integration not yet implemented (Phase 1 placeholder)")
+	// Spawn Claude Code subprocess with --print for non-interactive output
+	cmd := exec.CommandContext(ctx, "claude", "--print", "--model", modelAlias)
+
+	// Pass prompt via stdin (handles large prompts without arg length limits)
+	cmd.Stdin = bytes.NewBufferString(prompt)
+
+	// Capture stdout and stderr
+	var stdout, stderr bytes.Buffer
+	cmd.Stdout = &stdout
+	cmd.Stderr = &stderr
+
+	// Execute with context timeout
+	if err := cmd.Run(); err != nil {
+		return "", fmt.Errorf("execute: claude CLI failed: %w\nStderr: %s", err, stderr.String())
+	}
+
+	response := stdout.String()
+	if response == "" {
+		return "", fmt.Errorf("execute: claude returned empty response")
+	}
+
+	return response, nil
 }
 
 // Name returns the backend identifier.
