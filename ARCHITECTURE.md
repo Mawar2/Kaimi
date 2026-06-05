@@ -83,10 +83,35 @@ downstream agent enriches it. **Design this struct now to hold all downstream fi
 even though Phase 0 only populates the Hunter's portion** — changing this schema
 later is the highest integration risk in the project.
 
-A later phase will add an `AgentResult` return type that every Zone 2 agent conforms
-to (fields: agent name, status of `success`/`failed`/`needs_human`, a summary, an
-output reference, and flags). You do not build this in Phase 0, but know it's coming
-so your foundations don't preclude it.
+The `AgentResult` type (`internal/agent/result.go`) is the standardized return value
+for every agent in both zones. Locking this contract early lets Zone 2 agents be built
+and tested independently. Fields:
+
+| Field | Type | JSON key | Notes |
+|-------|------|----------|-------|
+| `AgentName` | `string` | `agent_name` | Which agent produced this result |
+| `Status` | `Status` | `status` | Outcome enum — see table below |
+| `NoticeID` | `string` | `notice_id` | SAM.gov opportunity ID; omitted if empty |
+| `Summary` | `string` | `summary` | Human-readable description; omitted if empty |
+| `OutputRef` | `string` | `output_ref` | Pointer to output artifact; omitted if empty |
+| `Flags` | `map[string]string` | `flags` | Agent-specific key-value metadata; omitted if empty |
+| `Error` | `string` | `error` | Error message for failed results; omitted if empty |
+| `CompletedAt` | `time.Time` | `completed_at` | When the agent finished |
+
+**Status enum:**
+
+| Value | Constant | Meaning |
+|-------|----------|---------|
+| `"success"` | `StatusSuccess` | Completed, output available |
+| `"failed"` | `StatusFailed` | Unrecoverable error |
+| `"needs_human"` | `StatusNeedsHuman` | Paused, requires human input |
+| `"ready_to_submit"` | `StatusReadyToSubmit` | Final Review only: proposal approved |
+
+**Helper methods:** `IsSuccess()`, `IsFailed()`, `NeedsHuman()`, `IsTerminal()`.
+`IsTerminal()` returns true for `success`, `failed`, and `ready_to_submit` — these
+states require no further automated action. `needs_human` is NOT terminal.
+
+See `internal/agent/stub.go` for the StubAgent reference implementation.
 
 ---
 
@@ -124,7 +149,7 @@ exact Phase 0 work.
 
 - **Do NOT** build the Scorer, Manager, Outline, Writer, or Final Review agents.
 - **Do NOT** deploy databases, Agent Engine, vector search, or scheduling yet.
-- **Do NOT** implement the `AgentResult` contract yet (just don't preclude it).
+- **DO** use the `AgentResult` contract (`internal/agent/`) — it is now locked and all agents must return it.
 - **DO** make the `Opportunity` schema and the `Store` interface forward-compatible.
 - **DO** keep the code simple, conventional, and well-commented.
 
