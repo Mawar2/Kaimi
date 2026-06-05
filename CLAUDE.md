@@ -94,7 +94,7 @@ The project has an **automated AI code review** integrated into the CI/CD pipeli
 Every pull request triggers an AI code review job (`.github/workflows/ci.yml` - `ai-code-review` job) that:
 1. Authenticates to GCP and retrieves the Gemini API key from Secret Manager
 2. Gets the PR diff (limited to 50KB)
-3. Sends the diff to **Gemini 2.0 Flash Experimental** for review
+3. Sends the diff to **Gemini 2.5 Pro** (with thinking capability) for review
 4. AI reviews for:
    - Bugs and logic errors
    - Security vulnerabilities (OWASP Top 10)
@@ -222,7 +222,7 @@ CLAUDE.md is context, not a fence. Real enforcement lives in:
 | **Pre-commit hook** | Ticket prefix on commits, no secrets, formatter clean | Phase 1+ (not implemented in Phase 0) |
 | **Pre-push hook** | Branch naming pattern | Phase 1+ (not implemented in Phase 0) |
 | **CI pipeline (GitHub Actions)** | Tests pass, lint clean, builds succeed, AI review completes | Active (see `.github/workflows/ci.yml`) |
-| **AI code review (automated)** | Security, bugs, Go best practices, architecture alignment | Active (Gemini 2.0 Flash in CI) |
+| **AI code review (automated)** | Security, bugs, Go best practices, architecture alignment | Active (Gemini 2.5 Pro in CI) |
 | **AI sub-agent review (manual)** | AC + DoD verification with evidence, deep architecture check | Active (WORKFLOW.md protocol, optional) |
 | **Human approval** | Final merge gate | Active (Malik or Timm approves every PR) |
 
