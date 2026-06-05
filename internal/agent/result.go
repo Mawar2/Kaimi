@@ -57,6 +57,8 @@ const (
 //	    Error:     "SAM.gov API returned 429 (rate limit exceeded)",
 //	    CompletedAt: time.Now(),
 //	}
+//
+// revive:disable:exported
 type AgentResult struct {
 	// AgentName identifies which agent produced this result.
 	// Examples: "hunter", "scorer", "outline", "writer", "final-review"
