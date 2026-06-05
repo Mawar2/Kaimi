@@ -83,10 +83,49 @@ downstream agent enriches it. **Design this struct now to hold all downstream fi
 even though Phase 0 only populates the Hunter's portion** — changing this schema
 later is the highest integration risk in the project.
 
-A later phase will add an `AgentResult` return type that every Zone 2 agent conforms
-to (fields: agent name, status of `success`/`failed`/`needs_human`, a summary, an
-output reference, and flags). You do not build this in Phase 0, but know it's coming
-so your foundations don't preclude it.
+Every agent returns an **`AgentResult`** — the uniform exit type defined in
+`internal/agent`. Locking this contract early lets every agent be built and tested
+independently, and lets the Manager coordinate them without knowing their internals.
+
+---
+
+## AgentResult contract (`internal/agent`)
+
+Every agent — in both Zone 1 and Zone 2 — returns an `AgentResult`. This is the
+single stable interface that callers, the Manager, and the task queue all depend on.
+
+### Status values
+
+| Value              | Meaning                                                      |
+|--------------------|--------------------------------------------------------------|
+| `success`          | Agent completed its work without errors                      |
+| `failed`           | Unrecoverable error; see `AgentResult.Error`                 |
+| `needs_human`      | Agent requires human intervention to proceed                 |
+| `ready_to_submit`  | Final Review agent approved the proposal for submission      |
+
+`success`, `failed`, and `ready_to_submit` are terminal (`IsTerminal() == true`).
+`needs_human` is non-terminal — the Manager pauses and surfaces it for review.
+
+### AgentResult fields
+
+```go
+type AgentResult struct {
+    AgentName   string            `json:"agent_name"`          // which agent produced this
+    Status      Status            `json:"status"`              // outcome
+    NoticeID    string            `json:"notice_id,omitempty"` // SAM.gov notice ID
+    Summary     string            `json:"summary,omitempty"`   // human-readable one-liner
+    OutputRef   string            `json:"output_ref,omitempty"`// file path, URL, or ID
+    Flags       map[string]string `json:"flags,omitempty"`     // agent-specific metadata
+    Error       string            `json:"error,omitempty"`     // non-empty only on failure
+    CompletedAt time.Time         `json:"completed_at"`        // when the agent finished
+}
+```
+
+### StubAgent
+
+`internal/agent.StubAgent` is a no-op that proves the contract compiles and runs.
+It returns `StatusSuccess` immediately (or `StatusFailed` on context cancellation).
+Use it in tests and as a starting template for real agents.
 
 ---
 
@@ -124,7 +163,7 @@ exact Phase 0 work.
 
 - **Do NOT** build the Scorer, Manager, Outline, Writer, or Final Review agents.
 - **Do NOT** deploy databases, Agent Engine, vector search, or scheduling yet.
-- **Do NOT** implement the `AgentResult` contract yet (just don't preclude it).
+- **DO** use `AgentResult` (now locked in `internal/agent`) as the return type for all agents.
 - **DO** make the `Opportunity` schema and the `Store` interface forward-compatible.
 - **DO** keep the code simple, conventional, and well-commented.
 
