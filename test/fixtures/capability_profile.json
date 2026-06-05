@@ -1,0 +1,39 @@
+{
+  "company_name": "BlueMeta Technologies",
+  "primary_naics": ["541512", "541519"],
+  "secondary_naics": ["541511", "541513", "518210", "541330", "541715"],
+  "competency_tags": [
+    "cloud",
+    "AWS",
+    "GCP",
+    "Azure",
+    "Kubernetes",
+    "DevOps",
+    "cybersecurity",
+    "AI",
+    "ML",
+    "machine learning",
+    "data analytics",
+    "modernization",
+    "infrastructure",
+    "migration",
+    "automation",
+    "software development",
+    "agile",
+    "API",
+    "microservices",
+    "containerization"
+  ],
+  "past_performance": [
+    "GSA",
+    "DHS",
+    "DOE",
+    "DOD",
+    "cloud migration",
+    "infrastructure modernization",
+    "federal IT",
+    "cybersecurity assessment"
+  ],
+  "is_sdb": true,
+  "set_aside_codes": ["SBA", "8A"]
+}
