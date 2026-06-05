@@ -83,10 +83,38 @@ downstream agent enriches it. **Design this struct now to hold all downstream fi
 even though Phase 0 only populates the Hunter's portion** — changing this schema
 later is the highest integration risk in the project.
 
-A later phase will add an `AgentResult` return type that every Zone 2 agent conforms
-to (fields: agent name, status of `success`/`failed`/`needs_human`, a summary, an
-output reference, and flags). You do not build this in Phase 0, but know it's coming
-so your foundations don't preclude it.
+Every Zone 2 agent returns an `AgentResult` (defined in `internal/agent/result.go`).
+The Manager reads this struct to decide whether to advance the pipeline, pause for
+human review, or halt. **This contract is locked — downstream agent tickets depend on
+it.**
+
+### AgentResult contract
+
+```go
+type AgentResult struct {
+    AgentName   string            // which agent produced this result
+    Status      Status            // outcome (see status table below)
+    Summary     string            // human-readable description of what happened
+    OutputRef   *string           // optional pointer to the output artifact (nil on failure)
+    Flags       map[string]string // extensible key-value metadata (nil when unused)
+    CompletedAt time.Time         // when execution finished (UTC)
+}
+```
+
+**Status values:**
+
+| Value             | Meaning                                         | IsTerminal |
+|-------------------|-------------------------------------------------|------------|
+| `success`         | Agent completed its task without errors         | true       |
+| `failed`          | Unrecoverable error; pipeline halts or retries  | true       |
+| `needs_human`     | Agent requires a human decision before advancing| false      |
+| `ready_to_submit` | Proposal complete; awaiting human sign-off      | true       |
+
+**Design decisions:**
+- `Flags` is `map[string]string` — extensible key-value metadata with no schema changes needed.
+- `IsTerminal()` returns true for `success`/`failed`/`ready_to_submit`; false for `needs_human`.
+- `//nolint:revive` on `AgentResult` suppresses the stutter warning; `agent.AgentResult` is preferred for call-site clarity.
+- `StubAgent` in `internal/agent/stub.go` lets downstream packages depend on the contract without a live LLM.
 
 ---
 
