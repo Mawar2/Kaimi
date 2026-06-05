@@ -1,13 +1,14 @@
 // Package main is the entry point for the Hunter agent.
 //
 // Hunter is the first agent in the Kaimi autonomous BD pipeline. It pulls federal
-// contracting opportunities from the SAM.gov API, filters them by NAICS code, and
-// saves them to the opportunity queue for downstream scoring.
+// contracting opportunities from the SAM.gov API, gates them against BlueMeta's
+// set-aside eligibility, and saves eligible opportunities to the queue for
+// downstream scoring.
 //
 // Configuration is read from environment variables or command-line flags:
 //   - MODE: "cached" or "live" (default: cached)
 //   - SAM_API_KEY: SAM.gov API key (required for live mode)
-//   - NAICS_CODES: Comma-separated list of NAICS codes (default: "541512,541519")
+//   - PROFILE: Path to capability profile JSON or YAML (default: "profile.json")
 //   - STORE_TYPE: Store implementation type (default: "json")
 //   - STORE_PATH: Path to store directory (default: "./queue")
 //
@@ -16,8 +17,8 @@
 //	# Run in cached mode (for testing)
 //	go run cmd/hunter/main.go --mode=cached
 //
-//	# Run in live mode
-//	SAM_API_KEY=your-key go run cmd/hunter/main.go --mode=live --naics=541512,541519
+//	# Run in live mode with a custom profile
+//	SAM_API_KEY=your-key go run cmd/hunter/main.go --mode=live --profile=profile.json
 package main
 
 import (
@@ -28,17 +29,18 @@ import (
 	"strings"
 	"time"
 
+	"github.com/Mawar2/Kaimi/internal/profile"
 	"github.com/Mawar2/Kaimi/internal/samgov"
 	"github.com/Mawar2/Kaimi/internal/store"
 )
 
 // Config holds the Hunter agent configuration.
 type Config struct {
-	Mode       string   // "cached" or "live"
-	APIKey     string   // SAM.gov API key
-	NAICSCodes []string // NAICS codes to search for
-	StoreType  string   // Store implementation type ("json")
-	StorePath  string   // Path to store directory
+	Mode        string // "cached" or "live"
+	APIKey      string // SAM.gov API key
+	ProfilePath string // Path to capability profile JSON or YAML file
+	StoreType   string // Store implementation type ("json")
+	StorePath   string // Path to store directory
 }
 
 func main() {
@@ -48,20 +50,32 @@ func main() {
 	}
 }
 
-// run contains the main logic for the Hunter agent.
+// run parses configuration, validates it, and delegates to runWithConfig.
 func run() error {
-	// Parse configuration
 	config := parseConfig()
 
-	// Validate configuration
 	if err := validateConfig(&config); err != nil {
 		return fmt.Errorf("invalid configuration: %w", err)
 	}
 
-	// Log configuration (excluding sensitive data)
+	ctx := context.Background()
+	return runWithConfig(ctx, &config)
+}
+
+// runWithConfig loads the capability profile, fetches opportunities from SAM.gov,
+// applies the set-aside eligibility gate, and saves eligible opportunities to the
+// store. Extracted from run() so tests can inject a synthetic profile path and store.
+func runWithConfig(ctx context.Context, config *Config) error {
+	// Load capability profile to get NAICS codes for search
+	prof, err := profile.LoadProfile(config.ProfilePath)
+	if err != nil {
+		return fmt.Errorf("failed to load capability profile: %w", err)
+	}
+	naicsCodes := prof.AllNAICSCodes()
+
 	fmt.Println("Hunter agent starting...")
 	fmt.Printf("Mode: %s\n", config.Mode)
-	fmt.Printf("NAICS codes: %v\n", config.NAICSCodes)
+	fmt.Printf("NAICS codes: %v\n", naicsCodes)
 	fmt.Printf("Store path: %s\n", config.StorePath)
 
 	// Initialize SAM.gov client
@@ -73,7 +87,7 @@ func run() error {
 		return fmt.Errorf("failed to create SAM.gov client: %w", err)
 	}
 
-	// Initialize Store
+	// Initialize store
 	var opportunityStore store.Store
 	switch config.StoreType {
 	case "json":
@@ -86,11 +100,10 @@ func run() error {
 	}
 
 	// Fetch opportunities from SAM.gov
-	ctx := context.Background()
 	fmt.Println("Fetching opportunities from SAM.gov...")
 	startTime := time.Now()
 
-	opportunities, err := samClient.FetchByNAICS(ctx, config.NAICSCodes)
+	opportunities, err := samClient.FetchByNAICS(ctx, naicsCodes)
 	if err != nil {
 		return fmt.Errorf("failed to fetch opportunities: %w", err)
 	}
@@ -98,24 +111,29 @@ func run() error {
 	fetchDuration := time.Since(startTime)
 	fmt.Printf("Fetched %d opportunities in %v\n", len(opportunities), fetchDuration)
 
-	// Save opportunities to store
-	fmt.Println("Saving opportunities to store...")
+	// Apply eligibility gate and save eligible opportunities
 	savedCount := 0
+	droppedCount := 0
 	errorCount := 0
 
 	for _, opp := range opportunities {
-		if err := opportunityStore.Save(ctx, opp); err != nil {
-			fmt.Fprintf(os.Stderr, "Warning: failed to save opportunity %s: %v\n", opp.ID, err)
+		if !isEligible(opp.SetAsideCode) {
+			fmt.Fprintf(os.Stderr, "Dropped ineligible opportunity %s (set-aside: %q)\n", opp.ID, opp.SetAsideCode)
+			droppedCount++
+			continue
+		}
+		if saveErr := opportunityStore.Save(ctx, opp); saveErr != nil {
+			fmt.Fprintf(os.Stderr, "Warning: failed to save opportunity %s: %v\n", opp.ID, saveErr)
 			errorCount++
 			continue
 		}
 		savedCount++
 	}
 
-	// Log summary
 	totalDuration := time.Since(startTime)
 	fmt.Println("\n--- Hunter Summary ---")
 	fmt.Printf("Opportunities fetched: %d\n", len(opportunities))
+	fmt.Printf("Ineligible (dropped):  %d\n", droppedCount)
 	fmt.Printf("Opportunities saved:   %d\n", savedCount)
 	fmt.Printf("Errors:                %d\n", errorCount)
 	fmt.Printf("Total duration:        %v\n", totalDuration)
@@ -128,71 +146,72 @@ func run() error {
 	return nil
 }
 
+// isEligible reports whether BlueMeta can bid on an opportunity with the given
+// set-aside code. It keeps full-and-open and small-business set-asides, drops
+// program certifications BlueMeta does not hold, and passes unrecognized codes
+// to avoid false negatives.
+func isEligible(setAsideCode string) bool {
+	switch strings.ToUpper(strings.TrimSpace(setAsideCode)) {
+	case "", "NONE":
+		// Full-and-open competition — always eligible
+		return true
+	case "SBA", "SBP":
+		// Total/Partial Small Business Set-Aside — BlueMeta qualifies
+		return true
+	case "8A", "8(A)", "8AN",
+		"SDVOSB", "SDVOSBC",
+		"WOSB", "EDWOSB",
+		"HUBZONE", "HUB",
+		"VOSB",
+		"IEE", "ISBEE":
+		// Program certifications BlueMeta does not hold
+		return false
+	default:
+		// Pass unrecognized codes to avoid false negatives
+		return true
+	}
+}
+
 // parseConfig reads configuration from environment variables and command-line flags.
 func parseConfig() Config {
-	// Define command-line flags
 	mode := flag.String("mode", getEnv("MODE", "cached"), "Mode: cached or live")
-	naicsStr := flag.String("naics", getEnv("NAICS_CODES", "541512,541519"), "Comma-separated NAICS codes")
+	profilePath := flag.String("profile", getEnv("PROFILE", "profile.json"), "Path to capability profile JSON or YAML")
 	storeType := flag.String("store-type", getEnv("STORE_TYPE", "json"), "Store type: json")
 	storePath := flag.String("store-path", getEnv("STORE_PATH", "./queue"), "Store directory path")
 
 	flag.Parse()
 
-	// Get API key from environment (never from command-line for security)
+	// API key from environment only — never command-line for security
 	apiKey := os.Getenv("SAM_API_KEY")
 
-	// Parse NAICS codes
-	naicsCodes := parseNAICSCodes(*naicsStr)
-
 	return Config{
-		Mode:       *mode,
-		APIKey:     apiKey,
-		NAICSCodes: naicsCodes,
-		StoreType:  *storeType,
-		StorePath:  *storePath,
+		Mode:        *mode,
+		APIKey:      apiKey,
+		ProfilePath: *profilePath,
+		StoreType:   *storeType,
+		StorePath:   *storePath,
 	}
 }
 
 // validateConfig validates the configuration.
 func validateConfig(config *Config) error {
-	// Validate mode
 	if config.Mode != "cached" && config.Mode != "live" {
 		return fmt.Errorf("mode must be 'cached' or 'live', got: %s", config.Mode)
 	}
 
-	// Validate API key for live mode
 	if config.Mode == "live" && config.APIKey == "" {
 		return fmt.Errorf("SAM_API_KEY environment variable is required for live mode")
 	}
 
-	// Validate NAICS codes
-	if len(config.NAICSCodes) == 0 {
-		return fmt.Errorf("at least one NAICS code is required")
+	if config.ProfilePath == "" {
+		return fmt.Errorf("profile path is required")
 	}
 
-	// Validate store type
 	if config.StoreType != "json" {
 		return fmt.Errorf("unsupported store type: %s (only 'json' is supported in Phase 0)", config.StoreType)
 	}
 
 	return nil
-}
-
-// parseNAICSCodes parses a comma-separated string of NAICS codes.
-func parseNAICSCodes(s string) []string {
-	if s == "" {
-		return nil
-	}
-
-	parts := strings.Split(s, ",")
-	var codes []string
-	for _, part := range parts {
-		code := strings.TrimSpace(part)
-		if code != "" {
-			codes = append(codes, code)
-		}
-	}
-	return codes
 }
 
 // getEnv returns the value of an environment variable or a default value.
