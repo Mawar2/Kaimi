@@ -114,6 +114,21 @@ Every pull request triggers an AI code review job (`.github/workflows/ci.yml` - 
 - If the review finds critical security issues, **prioritize fixing them**
 - If you disagree with a suggestion, document why in a PR comment
 
+### IMPORTANT: When to Create PRs
+
+**Only create a PR when your code is ready for human review.**
+
+- Work on your feature branch as long as needed
+- Every push to an open PR triggers an AI review (~$0.01 per review)
+- Opening a PR early and pushing many commits adds unnecessary cost
+- **Best practice**: Complete your work, run tests locally, then open the PR
+- If you need early feedback, use a **draft PR** (AI review is skipped on drafts)
+- When you're ready, mark the draft as "Ready for review" to trigger AI review
+
+**Cost example**:
+- Good: 1 commit → open PR → 1 AI review = $0.01
+- Bad: Open PR → 10 commits → 10 AI reviews = $0.10
+
 **Technical details:**
 - Platform: **Vertex AI** (Google Cloud's enterprise AI platform)
 - Model: Gemini 2.5 Pro (`gemini-2.5-pro`) - June 2025 stable release
