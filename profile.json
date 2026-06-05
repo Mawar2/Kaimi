@@ -1,0 +1,65 @@
+{
+  "name": "BlueMeta Technologies",
+  "set_aside": {
+    "small_business": true,
+    "sdb": true,
+    "minority_owned": true
+  },
+  "naics": {
+    "primary": "541512",
+    "secondary": [
+      "541519",
+      "541511",
+      "541715",
+      "541330",
+      "541611"
+    ],
+    "tertiary": [
+      "518210",
+      "561210",
+      "611420"
+    ]
+  },
+  "past_performance": [
+    {
+      "title": "Enterprise Cloud Migration for DoD Component",
+      "customer": "Department of Defense",
+      "naics": "541512",
+      "value": 2400000,
+      "year": 2024,
+      "relevance": "high"
+    },
+    {
+      "title": "IT Infrastructure Modernization",
+      "customer": "Department of Veterans Affairs",
+      "naics": "541519",
+      "value": 1800000,
+      "year": 2023,
+      "relevance": "high"
+    },
+    {
+      "title": "Custom Data Analytics Platform Development",
+      "customer": "Department of Commerce",
+      "naics": "541511",
+      "value": 950000,
+      "year": 2023,
+      "relevance": "medium"
+    },
+    {
+      "title": "Cybersecurity Assessment and Implementation",
+      "customer": "Department of Homeland Security",
+      "naics": "541512",
+      "value": 3200000,
+      "year": 2025,
+      "relevance": "high"
+    },
+    {
+      "title": "Software Engineering Support Services",
+      "customer": "General Services Administration",
+      "naics": "541511",
+      "value": 1100000,
+      "year": 2024,
+      "relevance": "medium"
+    }
+  ]
+}

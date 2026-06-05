@@ -2,65 +2,87 @@ package main
 
 import (
 	"context"
+	"encoding/json"
 	"os"
 	"path/filepath"
 	"testing"
 
-	"github.com/Mawar2/Kaimi/internal/samgov"
+	"github.com/Mawar2/Kaimi/internal/profile"
 	"github.com/Mawar2/Kaimi/internal/store"
 )
 
-// TestParseNAICSCodes verifies NAICS code parsing from comma-separated strings.
-func TestParseNAICSCodes(t *testing.T) {
+// TestIsEligible covers all set-aside code families handled by isEligible.
+// 17 sub-cases: full-and-open, small-business, 8(a), SDVOSB, WOSB, HUBZone,
+// VOSB, IEE/ISBEE, and one unrecognized code.
+func TestIsEligible(t *testing.T) {
 	tests := []struct {
-		name     string
-		input    string
-		expected []string
+		code     string
+		eligible bool
 	}{
-		{
-			name:     "single code",
-			input:    "541512",
-			expected: []string{"541512"},
-		},
-		{
-			name:     "multiple codes",
-			input:    "541512,541519,541330",
-			expected: []string{"541512", "541519", "541330"},
-		},
-		{
-			name:     "codes with spaces",
-			input:    "541512, 541519, 541330",
-			expected: []string{"541512", "541519", "541330"},
-		},
-		{
-			name:     "empty string",
-			input:    "",
-			expected: nil,
-		},
-		{
-			name:     "trailing comma",
-			input:    "541512,541519,",
-			expected: []string{"541512", "541519"},
-		},
+		// Full-and-open: always eligible
+		{"", true},
+		{"NONE", true},
+		// Small Business set-asides — BlueMeta qualifies
+		{"SBA", true},
+		{"SBP", true},
+		// 8(a) Program — BlueMeta does not hold this certification
+		{"8A", false},
+		{"8(A)", false},
+		{"8AN", false},
+		// Service-Disabled Veteran-Owned
+		{"SDVOSB", false},
+		{"SDVOSBC", false},
+		// Women-Owned
+		{"WOSB", false},
+		{"EDWOSB", false},
+		// HUBZone
+		{"HUBZONE", false},
+		{"HUB", false},
+		// Veteran-Owned
+		{"VOSB", false},
+		// Indian Economic Enterprise
+		{"IEE", false},
+		{"ISBEE", false},
+		// Unrecognized — pass through to avoid false negatives
+		{"UNKNOWN_XYZ", true},
 	}
 
 	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			result := parseNAICSCodes(tt.input)
-			if len(result) != len(tt.expected) {
-				t.Errorf("Expected %d codes, got %d", len(tt.expected), len(result))
-				return
-			}
-			for i, code := range result {
-				if code != tt.expected[i] {
-					t.Errorf("Expected code %q at index %d, got %q", tt.expected[i], i, code)
-				}
+		t.Run(tt.code, func(t *testing.T) {
+			got := isEligible(tt.code)
+			if got != tt.eligible {
+				t.Errorf("isEligible(%q) = %v, want %v", tt.code, got, tt.eligible)
 			}
 		})
 	}
 }
 
-// TestValidateConfig verifies configuration validation.
+// TestIsEligible_CaseNormalization verifies that set-aside codes are matched
+// case-insensitively with whitespace trimmed.
+func TestIsEligible_CaseNormalization(t *testing.T) {
+	tests := []struct {
+		code     string
+		eligible bool
+	}{
+		{"sba", true},     // lowercase eligible
+		{"sdvosb", false}, // lowercase ineligible
+		{"  SBA  ", true}, // whitespace trimmed
+		{"None", true},    // mixed-case NONE (from SAM.gov fixture)
+		{"   ", true},     // whitespace-only treated as full-and-open
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.code, func(t *testing.T) {
+			got := isEligible(tt.code)
+			if got != tt.eligible {
+				t.Errorf("isEligible(%q) = %v, want %v", tt.code, got, tt.eligible)
+			}
+		})
+	}
+}
+
+// TestValidateConfig verifies configuration validation after replacing the
+// --naics flag with --profile.
 func TestValidateConfig(t *testing.T) {
 	tests := []struct {
 		name        string
@@ -70,57 +92,56 @@ func TestValidateConfig(t *testing.T) {
 		{
 			name: "valid cached config",
 			config: Config{
-				Mode:       "cached",
-				NAICSCodes: []string{"541512"},
-				StoreType:  "json",
-				StorePath:  "./queue",
+				Mode:        "cached",
+				ProfilePath: "profile.json",
+				StoreType:   "json",
+				StorePath:   "./queue",
 			},
 			shouldError: false,
 		},
 		{
 			name: "valid live config with API key",
 			config: Config{
-				Mode:       "live",
-				APIKey:     "test-api-key",
-				NAICSCodes: []string{"541512"},
-				StoreType:  "json",
-				StorePath:  "./queue",
+				Mode:        "live",
+				APIKey:      "test-api-key",
+				ProfilePath: "profile.json",
+				StoreType:   "json",
+				StorePath:   "./queue",
 			},
 			shouldError: false,
 		},
 		{
 			name: "invalid mode",
 			config: Config{
-				Mode:       "invalid",
-				NAICSCodes: []string{"541512"},
-				StoreType:  "json",
+				Mode:        "invalid",
+				ProfilePath: "profile.json",
+				StoreType:   "json",
 			},
 			shouldError: true,
 		},
 		{
 			name: "live mode without API key",
 			config: Config{
-				Mode:       "live",
-				NAICSCodes: []string{"541512"},
-				StoreType:  "json",
+				Mode:        "live",
+				ProfilePath: "profile.json",
+				StoreType:   "json",
 			},
 			shouldError: true,
 		},
 		{
-			name: "no NAICS codes",
+			name: "empty profile path",
 			config: Config{
-				Mode:       "cached",
-				NAICSCodes: []string{},
-				StoreType:  "json",
+				Mode:      "cached",
+				StoreType: "json",
 			},
 			shouldError: true,
 		},
 		{
 			name: "unsupported store type",
 			config: Config{
-				Mode:       "cached",
-				NAICSCodes: []string{"541512"},
-				StoreType:  "firestore",
+				Mode:        "cached",
+				ProfilePath: "profile.json",
+				StoreType:   "firestore",
 			},
 			shouldError: true,
 		},
@@ -141,7 +162,6 @@ func TestValidateConfig(t *testing.T) {
 
 // TestGetEnv verifies environment variable reading with defaults.
 func TestGetEnv(t *testing.T) {
-	// Set a test environment variable
 	testKey := "TEST_HUNTER_VAR"
 	testValue := "test-value"
 	if err := os.Setenv(testKey, testValue); err != nil {
@@ -159,18 +179,8 @@ func TestGetEnv(t *testing.T) {
 		defaultValue string
 		expected     string
 	}{
-		{
-			name:         "existing variable",
-			key:          testKey,
-			defaultValue: "default",
-			expected:     testValue,
-		},
-		{
-			name:         "non-existent variable",
-			key:          "NONEXISTENT_VAR",
-			defaultValue: "default",
-			expected:     "default",
-		},
+		{"existing variable", testKey, "default", testValue},
+		{"non-existent variable", "NONEXISTENT_VAR", "default", "default"},
 	}
 
 	for _, tt := range tests {
@@ -183,144 +193,120 @@ func TestGetEnv(t *testing.T) {
 	}
 }
 
-// TestHunterIntegration is an end-to-end integration test for the Hunter agent.
-//
-// This test runs the complete Hunter workflow in cached mode:
-// 1. Initialize SAM.gov client in cached mode
-// 2. Initialize JSON store
-// 3. Fetch opportunities from cached fixtures
-// 4. Save opportunities to store
-// 5. Verify opportunities were saved correctly
-func TestHunterIntegration(t *testing.T) {
-	ctx := context.Background()
-
-	// Create temporary directory for store
-	tempDir := t.TempDir()
-	storePath := filepath.Join(tempDir, "queue")
-
-	// Initialize SAM.gov client in cached mode
-	samClient, err := samgov.NewClient(samgov.Config{
-		UseCached: true,
-	})
+// writeProfileJSON serialises a CapabilityProfile to a temp file and returns the path.
+func writeProfileJSON(t *testing.T, p *profile.CapabilityProfile) string {
+	t.Helper()
+	data, err := json.Marshal(p)
 	if err != nil {
-		t.Fatalf("Failed to create SAM.gov client: %v", err)
+		t.Fatalf("Failed to marshal profile: %v", err)
 	}
-
-	// Initialize JSON store
-	opportunityStore, err := store.NewJSONStore(tempDir)
-	if err != nil {
-		t.Fatalf("Failed to create JSON store: %v", err)
+	path := filepath.Join(t.TempDir(), "profile.json")
+	if err := os.WriteFile(path, data, 0o600); err != nil {
+		t.Fatalf("Failed to write profile: %v", err)
 	}
-
-	// Fetch opportunities
-	naicsCodes := []string{"541512", "541519"}
-	opportunities, err := samClient.FetchByNAICS(ctx, naicsCodes)
-	if err != nil {
-		t.Fatalf("Failed to fetch opportunities: %v", err)
-	}
-
-	// Verify we got opportunities
-	if len(opportunities) == 0 {
-		t.Fatal("Expected to fetch at least one opportunity")
-	}
-
-	t.Logf("Fetched %d opportunities", len(opportunities))
-
-	// Save opportunities to store
-	savedCount := 0
-	for _, opp := range opportunities {
-		if err := opportunityStore.Save(ctx, opp); err != nil {
-			t.Errorf("Failed to save opportunity %s: %v", opp.ID, err)
-			continue
-		}
-		savedCount++
-	}
-
-	// Verify all opportunities were saved
-	if savedCount != len(opportunities) {
-		t.Errorf("Expected to save %d opportunities, saved %d", len(opportunities), savedCount)
-	}
-
-	// Verify opportunities can be retrieved from store
-	for _, opp := range opportunities {
-		retrieved, err := opportunityStore.Get(ctx, opp.ID)
-		if err != nil {
-			t.Errorf("Failed to retrieve opportunity %s: %v", opp.ID, err)
-			continue
-		}
-
-		// Verify key fields match
-		if retrieved.ID != opp.ID {
-			t.Errorf("ID mismatch: expected %q, got %q", opp.ID, retrieved.ID)
-		}
-		if retrieved.Title != opp.Title {
-			t.Errorf("Title mismatch for %s: expected %q, got %q", opp.ID, opp.Title, retrieved.Title)
-		}
-		if retrieved.Agency != opp.Agency {
-			t.Errorf("Agency mismatch for %s: expected %q, got %q", opp.ID, opp.Agency, retrieved.Agency)
-		}
-	}
-
-	// Verify JSON files were created
-	entries, err := os.ReadDir(storePath)
-	if err != nil {
-		t.Fatalf("Failed to read store directory: %v", err)
-	}
-
-	jsonFileCount := 0
-	for _, entry := range entries {
-		if !entry.IsDir() && filepath.Ext(entry.Name()) == ".json" {
-			jsonFileCount++
-		}
-	}
-
-	if jsonFileCount != len(opportunities) {
-		t.Errorf("Expected %d JSON files, found %d", len(opportunities), jsonFileCount)
-	}
-
-	t.Logf("Integration test complete: %d opportunities saved and verified", savedCount)
+	return path
 }
 
-// TestHunterIntegration_EmptyNAICS verifies Hunter behavior with NAICS codes that return no results.
-func TestHunterIntegration_EmptyNAICS(t *testing.T) {
+// TestRunWithConfig exercises the full Hunter pipeline in cached mode using a
+// temp profile and a temp store directory.
+//
+// Fixture set-aside codes (test/fixtures/samgov_response.json):
+//   - a1b2c3d4e5f6: NAICS 541512, set-aside "SBA"  → eligible
+//   - f6e5d4c3b2a1: NAICS 541512, set-aside "8A"   → ineligible (dropped)
+//   - 9z8y7x6w5v4u: NAICS 541519, set-aside "None" → eligible
+func TestRunWithConfig(t *testing.T) {
 	ctx := context.Background()
-
-	// Create temporary directory for store
 	tempDir := t.TempDir()
 
-	// Initialize SAM.gov client in cached mode
-	samClient, err := samgov.NewClient(samgov.Config{
-		UseCached: true,
-	})
-	if err != nil {
-		t.Fatalf("Failed to create SAM.gov client: %v", err)
+	// Write a minimal profile covering both fixture NAICS codes.
+	prof := &profile.CapabilityProfile{
+		Name:     "Test Profile",
+		SetAside: profile.SetAsideStatus{SmallBusiness: true},
+		NAICS: profile.NAICSTiers{
+			Primary:   "541512",
+			Secondary: []string{"541519"},
+		},
+	}
+	profilePath := writeProfileJSON(t, prof)
+
+	config := Config{
+		Mode:        "cached",
+		ProfilePath: profilePath,
+		StoreType:   "json",
+		StorePath:   tempDir,
 	}
 
-	// Initialize JSON store
+	if err := runWithConfig(ctx, &config); err != nil {
+		t.Fatalf("runWithConfig failed: %v", err)
+	}
+
+	// Open the store to verify saved opportunities.
 	opportunityStore, err := store.NewJSONStore(tempDir)
 	if err != nil {
-		t.Fatalf("Failed to create JSON store: %v", err)
+		t.Fatalf("Failed to open store: %v", err)
 	}
 
-	// Fetch opportunities with non-matching NAICS code
-	naicsCodes := []string{"999999"} // This NAICS code doesn't exist in fixtures
-	opportunities, err := samClient.FetchByNAICS(ctx, naicsCodes)
+	saved, err := opportunityStore.List(ctx, nil)
 	if err != nil {
-		t.Fatalf("Failed to fetch opportunities: %v", err)
+		t.Fatalf("Failed to list saved opportunities: %v", err)
 	}
 
-	// Verify no opportunities were found
-	if len(opportunities) != 0 {
-		t.Errorf("Expected 0 opportunities for non-matching NAICS, got %d", len(opportunities))
+	// 3 fetched: SBA (eligible) + 8A (dropped) + None (eligible) = 2 saved.
+	if len(saved) != 2 {
+		t.Errorf("Expected 2 eligible opportunities saved, got %d", len(saved))
 	}
 
-	// Verify store is empty
-	allOpportunities, err := opportunityStore.List(ctx, nil)
+	ids := make(map[string]bool, len(saved))
+	for _, opp := range saved {
+		ids[opp.ID] = true
+	}
+
+	if ids["f6e5d4c3b2a1"] {
+		t.Error("8(a) opportunity f6e5d4c3b2a1 should have been dropped by eligibility gate")
+	}
+	if !ids["a1b2c3d4e5f6"] {
+		t.Error("SBA opportunity a1b2c3d4e5f6 should have been saved")
+	}
+	if !ids["9z8y7x6w5v4u"] {
+		t.Error("Full-and-open opportunity 9z8y7x6w5v4u should have been saved")
+	}
+}
+
+// TestRunWithConfig_NoMatches verifies runWithConfig handles gracefully when no
+// opportunities match the profile's NAICS codes.
+func TestRunWithConfig_NoMatches(t *testing.T) {
+	ctx := context.Background()
+	tempDir := t.TempDir()
+
+	// Profile with a NAICS code absent from the cached fixtures.
+	prof := &profile.CapabilityProfile{
+		Name:  "No-Match Profile",
+		NAICS: profile.NAICSTiers{Primary: "999999"},
+	}
+	profilePath := writeProfileJSON(t, prof)
+
+	config := Config{
+		Mode:        "cached",
+		ProfilePath: profilePath,
+		StoreType:   "json",
+		StorePath:   tempDir,
+	}
+
+	if err := runWithConfig(ctx, &config); err != nil {
+		t.Fatalf("runWithConfig failed: %v", err)
+	}
+
+	opportunityStore, err := store.NewJSONStore(tempDir)
+	if err != nil {
+		t.Fatalf("Failed to open store: %v", err)
+	}
+
+	all, err := opportunityStore.List(ctx, nil)
 	if err != nil {
 		t.Fatalf("Failed to list opportunities: %v", err)
 	}
 
-	if len(allOpportunities) != 0 {
-		t.Errorf("Expected empty store, found %d opportunities", len(allOpportunities))
+	if len(all) != 0 {
+		t.Errorf("Expected empty store for non-matching NAICS, got %d opportunities", len(all))
 	}
 }
