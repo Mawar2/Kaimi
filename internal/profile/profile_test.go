@@ -41,7 +41,8 @@ func TestLoadProfile_Success(t *testing.T) {
 		]
 	}`
 
-	if err := os.WriteFile(tempFile, []byte(content), 0o644); err != nil {
+	err = os.WriteFile(tempFile, []byte(content), 0o644)
+	if err != nil {
 		t.Fatalf("failed to write temp file: %v", err)
 	}
 
@@ -113,7 +114,8 @@ past_performance:
       - "identity verification"
 `
 
-	if err := os.WriteFile(tempFile, []byte(content), 0o644); err != nil {
+	err = os.WriteFile(tempFile, []byte(content), 0o644)
+	if err != nil {
 		t.Fatalf("failed to write temp file: %v", err)
 	}
 
@@ -147,7 +149,8 @@ func TestLoadProfile_InvalidYAML(t *testing.T) {
 	defer func() { _ = os.RemoveAll(tempDir) }()
 
 	tempFile := filepath.Join(tempDir, "invalid_profile.yaml")
-	if err := os.WriteFile(tempFile, []byte(`invalid: [yaml`), 0o644); err != nil {
+	err = os.WriteFile(tempFile, []byte(`invalid: [yaml`), 0o644)
+	if err != nil {
 		t.Fatalf("failed to write temp file: %v", err)
 	}
 
@@ -172,7 +175,8 @@ func TestLoadProfile_InvalidJSON(t *testing.T) {
 	defer func() { _ = os.RemoveAll(tempDir) }()
 
 	tempFile := filepath.Join(tempDir, "invalid_profile.json")
-	if err := os.WriteFile(tempFile, []byte(`{invalid json`), 0o644); err != nil {
+	err = os.WriteFile(tempFile, []byte(`{invalid json`), 0o644)
+	if err != nil {
 		t.Fatalf("failed to write temp file: %v", err)
 	}
 

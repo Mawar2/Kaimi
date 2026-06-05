@@ -34,6 +34,7 @@
   ],
   "past_performance": [
     {
+      "id": "census-decennial",
       "client": "U.S. Census Bureau",
       "scope": "Decennial Census IT infrastructure and systems integration",
       "value": 1200000.0,
@@ -44,6 +45,7 @@
       ]
     },
     {
+      "id": "hbs-auth",
       "client": "Harvard Business School (HBS)",
       "scope": "Research platform development and authentication system",
       "value": 450000.0,
@@ -53,6 +55,7 @@
       ]
     },
     {
+      "id": "gsa-spruce",
       "client": "SPRUCE (GSA)",
       "scope": "SPRUCE agile delivery support and identity management",
       "value": 850000.0,
@@ -62,6 +65,7 @@
       ]
     },
     {
+      "id": "dia-secure",
       "client": "Defense Intelligence Agency (DIA)",
       "scope": "Secure identity management and credentialing system",
       "value": 2100000.0,
@@ -72,6 +76,7 @@
       ]
     },
     {
+      "id": "login-gov",
       "client": "login.gov",
       "scope": "Core authentication and mobile Driver's License (mDL) integration",
       "value": 1500000.0,
