@@ -1,0 +1,86 @@
+{
+  "uei": "L3NJM4H2F7K9",
+  "cage": "9ABC1",
+  "naics": {
+    "primary": [
+      "541512"
+    ],
+    "secondary": [
+      "541511",
+      "541513",
+      "541519",
+      "518210",
+      "541330"
+    ],
+    "tertiary": [
+      "541611",
+      "541690",
+      "541715"
+    ]
+  },
+  "set_aside": {
+    "small_business": true,
+    "sdb": true,
+    "minority_owned": true
+  },
+  "clearance_status": "Secret",
+  "competency_tags": [
+    "identity verification",
+    "federal authentication",
+    "mDL",
+    "AI/ML",
+    "cloud architecture",
+    "cybersecurity"
+  ],
+  "past_performance": [
+    {
+      "client": "U.S. Census Bureau",
+      "scope": "Decennial Census IT infrastructure and systems integration",
+      "value": 1200000.0,
+      "what_it_proves": [
+        "high-scale transaction processing",
+        "cloud infrastructure",
+        "identity verification"
+      ]
+    },
+    {
+      "client": "Harvard Business School (HBS)",
+      "scope": "Research platform development and authentication system",
+      "value": 450000.0,
+      "what_it_proves": [
+        "federal authentication",
+        "academic collaboration"
+      ]
+    },
+    {
+      "client": "SPRUCE (GSA)",
+      "scope": "SPRUCE agile delivery support and identity management",
+      "value": 850000.0,
+      "what_it_proves": [
+        "agile software development",
+        "identity verification"
+      ]
+    },
+    {
+      "client": "Defense Intelligence Agency (DIA)",
+      "scope": "Secure identity management and credentialing system",
+      "value": 2100000.0,
+      "what_it_proves": [
+        "clearance",
+        "high-security systems",
+        "federal authentication"
+      ]
+    },
+    {
+      "client": "login.gov",
+      "scope": "Core authentication and mobile Driver's License (mDL) integration",
+      "value": 1500000.0,
+      "what_it_proves": [
+        "login.gov",
+        "mDL",
+        "federal authentication",
+        "identity verification"
+      ]
+    }
+  ]
+}
