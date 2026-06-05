@@ -6,55 +6,54 @@ import (
 	"path/filepath"
 	"testing"
 
+	"github.com/Mawar2/Kaimi/internal/opportunity"
+	"github.com/Mawar2/Kaimi/internal/profile"
 	"github.com/Mawar2/Kaimi/internal/samgov"
 	"github.com/Mawar2/Kaimi/internal/store"
 )
 
-// TestParseNAICSCodes verifies NAICS code parsing from comma-separated strings.
-func TestParseNAICSCodes(t *testing.T) {
+// TestIsEligible verifies set-aside eligibility gating.
+func TestIsEligible(t *testing.T) {
+	prof := &profile.CapabilityProfile{
+		SetAside: profile.SetAsideStatus{
+			SmallBusiness: true,
+			SDB:           true,
+			MinorityOwned: true,
+		},
+	}
+
 	tests := []struct {
-		name     string
-		input    string
-		expected []string
+		name         string
+		setAsideCode string
+		expected     bool
 	}{
-		{
-			name:     "single code",
-			input:    "541512",
-			expected: []string{"541512"},
-		},
-		{
-			name:     "multiple codes",
-			input:    "541512,541519,541330",
-			expected: []string{"541512", "541519", "541330"},
-		},
-		{
-			name:     "codes with spaces",
-			input:    "541512, 541519, 541330",
-			expected: []string{"541512", "541519", "541330"},
-		},
-		{
-			name:     "empty string",
-			input:    "",
-			expected: nil,
-		},
-		{
-			name:     "trailing comma",
-			input:    "541512,541519,",
-			expected: []string{"541512", "541519"},
-		},
+		{"empty set-aside (full and open)", "", true},
+		{"NONE set-aside (full and open)", "NONE", true},
+		{"SBA set-aside (small business)", "SBA", true},
+		{"SBP set-aside (small business)", "SBP", true},
+		{"8(a) set-aside (not held)", "8A", false},
+		{"8(a) alternate spelling (not held)", "8(A)", false},
+		{"8(a) AN set-aside (not held)", "8AN", false},
+		{"SDVOSB set-aside (not held)", "SDVOSB", false},
+		{"SDVOSBC set-aside (not held)", "SDVOSBC", false},
+		{"WOSB set-aside (not held)", "WOSB", false},
+		{"EDWOSB set-aside (not held)", "EDWOSB", false},
+		{"HUBZone set-aside (not held)", "HUBZONE", false},
+		{"HUB set-aside (not held)", "HUB", false},
+		{"VOSB set-aside (not held)", "VOSB", false},
+		{"IEE set-aside (not held)", "IEE", false},
+		{"ISBEE set-aside (not held)", "ISBEE", false},
+		{"unrecognized set-aside (keep to avoid starving)", "OTHER_NEW", true},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			result := parseNAICSCodes(tt.input)
-			if len(result) != len(tt.expected) {
-				t.Errorf("Expected %d codes, got %d", len(tt.expected), len(result))
-				return
+			opp := &opportunity.Opportunity{
+				SetAsideCode: tt.setAsideCode,
 			}
-			for i, code := range result {
-				if code != tt.expected[i] {
-					t.Errorf("Expected code %q at index %d, got %q", tt.expected[i], i, code)
-				}
+			result := isEligible(opp, prof)
+			if result != tt.expected {
+				t.Errorf("isEligible(%q) = %t; want %t", tt.setAsideCode, result, tt.expected)
 			}
 		})
 	}
@@ -70,57 +69,43 @@ func TestValidateConfig(t *testing.T) {
 		{
 			name: "valid cached config",
 			config: Config{
-				Mode:       "cached",
-				NAICSCodes: []string{"541512"},
-				StoreType:  "json",
-				StorePath:  "./queue",
+				Mode:      "cached",
+				StoreType: "json",
+				StorePath: "./queue",
 			},
 			shouldError: false,
 		},
 		{
 			name: "valid live config with API key",
 			config: Config{
-				Mode:       "live",
-				APIKey:     "test-api-key",
-				NAICSCodes: []string{"541512"},
-				StoreType:  "json",
-				StorePath:  "./queue",
+				Mode:      "live",
+				APIKey:    "test-api-key",
+				StoreType: "json",
+				StorePath: "./queue",
 			},
 			shouldError: false,
 		},
 		{
 			name: "invalid mode",
 			config: Config{
-				Mode:       "invalid",
-				NAICSCodes: []string{"541512"},
-				StoreType:  "json",
+				Mode:      "invalid",
+				StoreType: "json",
 			},
 			shouldError: true,
 		},
 		{
 			name: "live mode without API key",
 			config: Config{
-				Mode:       "live",
-				NAICSCodes: []string{"541512"},
-				StoreType:  "json",
-			},
-			shouldError: true,
-		},
-		{
-			name: "no NAICS codes",
-			config: Config{
-				Mode:       "cached",
-				NAICSCodes: []string{},
-				StoreType:  "json",
+				Mode:      "live",
+				StoreType: "json",
 			},
 			shouldError: true,
 		},
 		{
 			name: "unsupported store type",
 			config: Config{
-				Mode:       "cached",
-				NAICSCodes: []string{"541512"},
-				StoreType:  "firestore",
+				Mode:      "cached",
+				StoreType: "firestore",
 			},
 			shouldError: true,
 		},
@@ -183,14 +168,56 @@ func TestGetEnv(t *testing.T) {
 	}
 }
 
+// TestRunWithConfig verifies the full Hunter execution flow using a mock/test profile.
+func TestRunWithConfig(t *testing.T) {
+	tempDir := t.TempDir()
+
+	// Create a test profile JSON file
+	profilePath := filepath.Join(tempDir, "test_profile.json")
+	testProfile := `{
+		"uei": "TESTUEI",
+		"cage": "TESTCAGE",
+		"naics": {
+			"primary": ["541512"],
+			"secondary": ["541519"],
+			"tertiary": []
+		},
+		"set_aside": {
+			"small_business": true,
+			"sdb": false,
+			"minority_owned": false
+		}
+	}`
+
+	if err := os.WriteFile(profilePath, []byte(testProfile), 0o644); err != nil {
+		t.Fatalf("Failed to write test profile: %v", err)
+	}
+
+	config := Config{
+		Mode:        "cached",
+		StoreType:   "json",
+		StorePath:   tempDir,
+		ProfilePath: profilePath,
+	}
+
+	err := runWithConfig(&config)
+	if err != nil {
+		t.Fatalf("runWithConfig failed: %v", err)
+	}
+
+	// Verify that the opportunities store has saved files
+	storePath := filepath.Join(tempDir, "queue")
+	entries, err := os.ReadDir(storePath)
+	if err != nil {
+		t.Fatalf("Failed to read store queue directory: %v", err)
+	}
+
+	if len(entries) == 0 {
+		t.Error("Expected opportunities to be saved to store, but store is empty")
+	}
+}
+
 // TestHunterIntegration is an end-to-end integration test for the Hunter agent.
-//
-// This test runs the complete Hunter workflow in cached mode:
-// 1. Initialize SAM.gov client in cached mode
-// 2. Initialize JSON store
-// 3. Fetch opportunities from cached fixtures
-// 4. Save opportunities to store
-// 5. Verify opportunities were saved correctly
 func TestHunterIntegration(t *testing.T) {
 	ctx := context.Background()
 

@@ -7,9 +7,9 @@
 // Configuration is read from environment variables or command-line flags:
 //   - MODE: "cached" or "live" (default: cached)
 //   - SAM_API_KEY: SAM.gov API key (required for live mode)
-//   - NAICS_CODES: Comma-separated list of NAICS codes (default: "541512,541519")
 //   - STORE_TYPE: Store implementation type (default: "json")
 //   - STORE_PATH: Path to store directory (default: "./queue")
+//   - PROFILE_PATH: Path to capability profile JSON/YAML (default: "profile.json")
 //
 // Example usage:
 //
@@ -17,7 +17,7 @@
 //	go run cmd/hunter/main.go --mode=cached
 //
 //	# Run in live mode
-//	SAM_API_KEY=your-key go run cmd/hunter/main.go --mode=live --naics=541512,541519
+//	SAM_API_KEY=your-key go run cmd/hunter/main.go --mode=live
 package main
 
 import (
@@ -28,17 +28,20 @@ import (
 	"strings"
 	"time"
 
+	"github.com/Mawar2/Kaimi/internal/opportunity"
+	"github.com/Mawar2/Kaimi/internal/profile"
 	"github.com/Mawar2/Kaimi/internal/samgov"
 	"github.com/Mawar2/Kaimi/internal/store"
 )
 
 // Config holds the Hunter agent configuration.
 type Config struct {
-	Mode       string   // "cached" or "live"
-	APIKey     string   // SAM.gov API key
-	NAICSCodes []string // NAICS codes to search for
-	StoreType  string   // Store implementation type ("json")
-	StorePath  string   // Path to store directory
+	Mode        string   // "cached" or "live"
+	APIKey      string   // SAM.gov API key
+	NAICSCodes  []string // NAICS codes to search for (loaded from capability profile)
+	StoreType   string   // Store implementation type ("json")
+	StorePath   string   // Path to store directory
+	ProfilePath string   // Path to the Capability Profile config file
 }
 
 func main() {
@@ -52,17 +55,49 @@ func main() {
 func run() error {
 	// Parse configuration
 	config := parseConfig()
+	return runWithConfig(&config)
+}
 
+// runWithConfig executes the Hunter agent workflow with the given configuration.
+func runWithConfig(config *Config) error {
 	// Validate configuration
-	if err := validateConfig(&config); err != nil {
+	if err := validateConfig(config); err != nil {
 		return fmt.Errorf("invalid configuration: %w", err)
 	}
+
+	// Load capability profile
+	prof, err := profile.LoadProfile(config.ProfilePath)
+	if err != nil {
+		return fmt.Errorf("failed to load capability profile: %w", err)
+	}
+
+	// Use NAICS codes from profile
+	var naicsCodes []string
+	seenCodes := make(map[string]bool)
+	addCodes := func(codes []string) {
+		for _, code := range codes {
+			code = strings.TrimSpace(code)
+			if code != "" && !seenCodes[code] {
+				seenCodes[code] = true
+				naicsCodes = append(naicsCodes, code)
+			}
+		}
+	}
+	addCodes(prof.NAICS.Primary)
+	addCodes(prof.NAICS.Secondary)
+	addCodes(prof.NAICS.Tertiary)
+
+	if len(naicsCodes) == 0 {
+		return fmt.Errorf("no NAICS codes found in capability profile")
+	}
+	config.NAICSCodes = naicsCodes
 
 	// Log configuration (excluding sensitive data)
 	fmt.Println("Hunter agent starting...")
 	fmt.Printf("Mode: %s\n", config.Mode)
 	fmt.Printf("NAICS codes: %v\n", config.NAICSCodes)
 	fmt.Printf("Store path: %s\n", config.StorePath)
+	fmt.Printf("Profile path: %s\n", config.ProfilePath)
 
 	// Initialize SAM.gov client
 	samClient, err := samgov.NewClient(samgov.Config{
@@ -98,12 +133,23 @@ func run() error {
 	fetchDuration := time.Since(startTime)
 	fmt.Printf("Fetched %d opportunities in %v\n", len(opportunities), fetchDuration)
 
+	// Filter opportunities by set-aside eligibility
+	var eligibleOpportunities []*opportunity.Opportunity
+	for _, opp := range opportunities {
+		if isEligible(opp, prof) {
+			eligibleOpportunities = append(eligibleOpportunities, opp)
+		} else {
+			fmt.Printf("Dropping ineligible opportunity %s (Title: %q, Set-Aside: %s)\n", opp.ID, opp.Title, opp.SetAsideCode)
+		}
+	}
+	fmt.Printf("Filtered to %d eligible opportunities\n", len(eligibleOpportunities))
+
 	// Save opportunities to store
 	fmt.Println("Saving opportunities to store...")
 	savedCount := 0
 	errorCount := 0
 
-	for _, opp := range opportunities {
+	for _, opp := range eligibleOpportunities {
 		if err := opportunityStore.Save(ctx, opp); err != nil {
 			fmt.Fprintf(os.Stderr, "Warning: failed to save opportunity %s: %v\n", opp.ID, err)
 			errorCount++
@@ -115,10 +161,11 @@ func run() error {
 	// Log summary
 	totalDuration := time.Since(startTime)
 	fmt.Println("\n--- Hunter Summary ---")
-	fmt.Printf("Opportunities fetched: %d\n", len(opportunities))
-	fmt.Printf("Opportunities saved:   %d\n", savedCount)
-	fmt.Printf("Errors:                %d\n", errorCount)
-	fmt.Printf("Total duration:        %v\n", totalDuration)
+	fmt.Printf("Opportunities fetched:  %d\n", len(opportunities))
+	fmt.Printf("Opportunities eligible: %d\n", len(eligibleOpportunities))
+	fmt.Printf("Opportunities saved:    %d\n", savedCount)
+	fmt.Printf("Errors:                 %d\n", errorCount)
+	fmt.Printf("Total duration:         %v\n", totalDuration)
 
 	if errorCount > 0 {
 		fmt.Printf("\nWarning: %d opportunities could not be saved\n", errorCount)
@@ -128,28 +175,63 @@ func run() error {
 	return nil
 }
 
+// isEligible determines if an opportunity is eligible based on its set-aside type and our Capability Profile.
+func isEligible(opp *opportunity.Opportunity, prof *profile.CapabilityProfile) bool {
+	// If set-aside is empty or none, it's full-and-open, which is eligible
+	code := strings.ToUpper(strings.TrimSpace(opp.SetAsideCode))
+	if code == "" || code == "NONE" {
+		return true
+	}
+
+	// If it's a general small business set-aside (SBA or SBP), it is eligible since we are a small business
+	if code == "SBA" || code == "SBP" {
+		return true
+	}
+
+	// Drop ones set aside for programs we don't hold (8(a), SDVOSB, WOSB, HUBZone, VOSB, IEE, ISBEE, etc.)
+	// BlueMeta only has small_business, sdb, minority_owned.
+	// We drop:
+	// - 8(a) -> "8A", "8(A)", "8AN"
+	// - SDVOSB -> "SDVOSB", "SDVOSBC", "SDVOSBS", "SDVOS"
+	// - WOSB -> "WOSB", "WOSBSS", "EDWOSB", "EDWOSBSS"
+	// - HUBZone -> "HUBZONE", "HUB", "HS3", "HCS"
+	// - VOSB -> "VOSB", "VOSBSS"
+	// - IEE / ISBEE
+	switch code {
+	case "8A", "8(A)", "8AN",
+		"SDVOSB", "SDVOSBC", "SDVOSBS", "SDVOS",
+		"WOSB", "WOSBSS", "EDWOSB", "EDWOSBSS",
+		"HUBZONE", "HUB", "HS3", "HCS",
+		"VOSB", "VOSBSS",
+		"IEE", "ISBEE":
+		return false
+	}
+
+	// SDB / minority owned are NOT hard filters here. If SAM.gov returned SDB or minority owned set-aside
+	// (though usually not separate codes), we keep them.
+	// For any other unrecognized set-asides, we keep them to avoid starving the pipeline.
+	return true
+}
+
 // parseConfig reads configuration from environment variables and command-line flags.
 func parseConfig() Config {
 	// Define command-line flags
 	mode := flag.String("mode", getEnv("MODE", "cached"), "Mode: cached or live")
-	naicsStr := flag.String("naics", getEnv("NAICS_CODES", "541512,541519"), "Comma-separated NAICS codes")
 	storeType := flag.String("store-type", getEnv("STORE_TYPE", "json"), "Store type: json")
 	storePath := flag.String("store-path", getEnv("STORE_PATH", "./queue"), "Store directory path")
+	profilePath := flag.String("profile", getEnv("PROFILE_PATH", "profile.json"), "Path to capability profile JSON/YAML")
 
 	flag.Parse()
 
 	// Get API key from environment (never from command-line for security)
 	apiKey := os.Getenv("SAM_API_KEY")
 
-	// Parse NAICS codes
-	naicsCodes := parseNAICSCodes(*naicsStr)
-
 	return Config{
-		Mode:       *mode,
-		APIKey:     apiKey,
-		NAICSCodes: naicsCodes,
-		StoreType:  *storeType,
-		StorePath:  *storePath,
+		Mode:        *mode,
+		APIKey:      apiKey,
+		StoreType:   *storeType,
+		StorePath:   *storePath,
+		ProfilePath: *profilePath,
 	}
 }
 
@@ -165,9 +247,9 @@ func validateConfig(config *Config) error {
 		return fmt.Errorf("SAM_API_KEY environment variable is required for live mode")
 	}
 
-	// Validate NAICS codes
-	if len(config.NAICSCodes) == 0 {
-		return fmt.Errorf("at least one NAICS code is required")
+	// Default ProfilePath if empty
+	if config.ProfilePath == "" {
+		config.ProfilePath = "profile.json"
 	}
 
 	// Validate store type
@@ -176,23 +258,6 @@ func validateConfig(config *Config) error {
 	}
 
 	return nil
-}
-
-// parseNAICSCodes parses a comma-separated string of NAICS codes.
-func parseNAICSCodes(s string) []string {
-	if s == "" {
-		return nil
-	}
-
-	parts := strings.Split(s, ",")
-	var codes []string
-	for _, part := range parts {
-		code := strings.TrimSpace(part)
-		if code != "" {
-			codes = append(codes, code)
-		}
-	}
-	return codes
 }
 
 // getEnv returns the value of an environment variable or a default value.
