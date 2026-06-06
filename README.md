@@ -88,8 +88,20 @@ All development follows the workflow defined in [WORKFLOW.md](./WORKFLOW.md):
 1. Work is tracked via GitHub Issues with approved acceptance criteria
 2. Test-Driven Development (TDD) required
 3. All PRs must pass tests and linter
-4. AI sub-agent code review before human review
-5. Human approval required for all merges
+4. **Automated AI code review** runs in CI using Gemini 2.5 Pro
+5. **Auto-fix bot** automatically fixes simple issues (unused vars, formatting, basic best practices)
+6. AI sub-agent code review before human review (optional deep analysis)
+7. Human approval required for all merges
+
+### AI-Powered CI/CD
+
+The project uses **Gemini 2.5 Pro** for automated code quality:
+- **AI Code Review**: Every PR gets reviewed for bugs, security, performance, and Go best practices
+- **Auto-Fix Bot**: Simple issues are automatically fixed and committed to the PR
+- **Cost**: ~$0.01-$0.06 per PR (within Gemini free tier)
+- **Safety**: Auto-fixes require human review before merge; never auto-merges
+
+See [CLAUDE.md](./CLAUDE.md) for details on the AI review and auto-fix system.
 
 ### Common Make Targets
 ```bash
