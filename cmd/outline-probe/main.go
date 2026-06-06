@@ -97,7 +97,7 @@ func run(mode string, limit int, pdfFile string) error {
 	if err != nil {
 		return fmt.Errorf("create temp dir: %w", err)
 	}
-	defer os.RemoveAll(tmpDir)
+	defer func() { _ = os.RemoveAll(tmpDir) }()
 
 	for _, opp := range opps {
 		processOpportunity(ctx, a, opp, apiKey, mode, tmpDir)
@@ -114,7 +114,7 @@ func runPDFFile(pdfPath string) error {
 	if err != nil {
 		return fmt.Errorf("create temp dir: %w", err)
 	}
-	defer os.RemoveAll(tmpDir)
+	defer func() { _ = os.RemoveAll(tmpDir) }()
 
 	text, err := extractPDFText(pdfPath, tmpDir)
 	if err != nil {
@@ -181,11 +181,15 @@ func processOpportunity(ctx context.Context, a *outline.Agent, opp *opportunity.
 
 // downloadAndExtractPDF downloads a URL, saves it as a PDF, and returns extracted plain text.
 func downloadAndExtractPDF(url, tmpDir string) (string, error) {
-	resp, err := http.Get(url) //nolint:noctx
+	resp, err := http.Get(url) //nolint:noctx // probe-only CLI tool; no request cancellation needed
 	if err != nil {
 		return "", fmt.Errorf("HTTP get: %w", err)
 	}
-	defer resp.Body.Close()
+	defer func() {
+		if closeErr := resp.Body.Close(); closeErr != nil {
+			fmt.Fprintf(os.Stderr, "Warning: failed to close response body: %v\n", closeErr)
+		}
+	}()
 
 	if resp.StatusCode != http.StatusOK {
 		return "", fmt.Errorf("server returned %d", resp.StatusCode)
@@ -202,10 +206,12 @@ func downloadAndExtractPDF(url, tmpDir string) (string, error) {
 		return "", fmt.Errorf("create temp file: %w", err)
 	}
 	if _, err = io.Copy(f, resp.Body); err != nil {
-		f.Close()
+		_ = f.Close() // best-effort close on write error path
 		return "", fmt.Errorf("write PDF: %w", err)
 	}
-	f.Close()
+	if err = f.Close(); err != nil {
+		return "", fmt.Errorf("close PDF file: %w", err)
+	}
 
 	return extractPDFText(pdfPath, tmpDir)
 }
@@ -213,7 +219,7 @@ func downloadAndExtractPDF(url, tmpDir string) (string, error) {
 // extractPDFText runs pdftotext on pdfPath and returns the resulting plain text.
 func extractPDFText(pdfPath, tmpDir string) (string, error) {
 	txtPath := filepath.Join(tmpDir, "extracted.txt")
-	cmd := exec.Command(pdfToText, pdfPath, txtPath) //nolint:gosec
+	cmd := exec.Command(pdfToText, pdfPath, txtPath) //nolint:gosec // G204: pdfToText is a compile-time constant, not user input
 	if out, err := cmd.CombinedOutput(); err != nil {
 		return "", fmt.Errorf("pdftotext: %w — %s", err, strings.TrimSpace(string(out)))
 	}
@@ -234,11 +240,15 @@ func fetchDescription(url, apiKey string) (string, error) {
 		url = url + sep + "api_key=" + apiKey
 	}
 
-	resp, err := http.Get(url) //nolint:noctx
+	resp, err := http.Get(url) //nolint:noctx // probe-only CLI tool; no request cancellation needed
 	if err != nil {
 		return "", fmt.Errorf("HTTP get: %w", err)
 	}
-	defer resp.Body.Close()
+	defer func() {
+		if closeErr := resp.Body.Close(); closeErr != nil {
+			fmt.Fprintf(os.Stderr, "Warning: failed to close response body: %v\n", closeErr)
+		}
+	}()
 
 	if resp.StatusCode != http.StatusOK {
 		return "", fmt.Errorf("SAM.gov returned status %d", resp.StatusCode)
