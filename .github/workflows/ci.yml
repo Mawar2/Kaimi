@@ -391,14 +391,17 @@ jobs:
           FILE_CONTENT=$(cat "$FILE")
 
           # Call Gemini to generate specific fix
-          PROMPT="Fix this issue in the code. Return ONLY the complete fixed file content, no explanations, no markdown code blocks.
+          PROMPT=$(cat <<EOF
+Fix this issue in the code. Return ONLY the complete fixed file content, no explanations, no markdown code blocks.
 
 File: $FILE
 Issue at line $LINE: $DESCRIPTION
 Suggested fix: $SUGGESTED_FIX
 
 Current file content:
-$FILE_CONTENT"
+$FILE_CONTENT
+EOF
+)
 
           PAYLOAD=$(jq -n \
             --arg prompt "$PROMPT" \
