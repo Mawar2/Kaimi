@@ -1,0 +1,32 @@
+uei: "TESTTEST1234"
+cage: "TEST1"
+company: "Test Company"
+address: "123 Test St, Test City, TC 12345"
+naics_codes:
+  - code: "541512"
+    description: "Computer Systems Design Services"
+    tier: "primary"
+  - code: "541519"
+    description: "Other Computer Related Services"
+    tier: "primary"
+  - code: "518210"
+    description: "Data Processing Services"
+    tier: "secondary"
+set_aside:
+  small_business: true
+  sdb: true
+  minority_owned: false
+  eight_a: false
+  sdvosb: false
+  wosb: false
+  hubzone: false
+clearance: "Public Trust"
+competencies:
+  - "AI/ML"
+  - "Federal Systems"
+past_performance:
+  - client: "Test Client"
+    scope: "Test Project"
+    value: "$1,000"
+    what_it_proves:
+      - "Federal experience"
