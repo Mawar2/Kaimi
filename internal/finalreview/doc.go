@@ -5,15 +5,24 @@
 //
 //	Manager → Outline → Technical Writer → [HUMAN GATE] → Final Review
 //
-// It receives the human-approved draft and its Opportunity, runs a set of
-// automated checks (deadline still open, draft non-empty, required sections
-// present), and returns an AgentResult indicating whether the proposal is
-// ready for submission.
+// It receives the human-approved draft and its Opportunity (and optionally
+// the Outline), runs a set of automated checks, and returns an AgentResult
+// indicating whether the proposal is ready for submission.
 //
-// IMPORTANT: This agent NEVER submits anything. ReadyToSubmit=true in the
+// Checks performed:
+//   - deadline: expired deadline → StatusFailed (fatal, halts all other checks)
+//   - must_have: each keyword in Opportunity.Requirements must appear in the draft
+//   - required_section: every Required=true section title must appear in the draft
+//   - required_form: every form number in FormattingRules.RequiredForms must be acknowledged
+//   - page_limit: word count must not exceed the solicitation's stated page limit
+//
+// The Outline field on Input is optional. When nil, only deadline and must-have
+// checks run — existing callers are unaffected.
+//
+// Issues are reported in AgentResult.Flags under "issues_found" (count) and
+// "issue_N" (one detail string per issue, containing category, what, and where).
+//
+// IMPORTANT: This agent NEVER submits anything. StatusReadyToSubmit in the
 // returned AgentResult is a signal for a human to act on. No submission API
 // is called by this agent.
-//
-// Current phase (skeleton): checks are stubbed. Real LLM-backed checks
-// arrive in the next ticket (KAI-7).
 package finalreview
