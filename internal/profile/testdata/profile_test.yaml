@@ -1,0 +1,12 @@
+name: Test Company
+set_aside:
+  small_business: true
+  sdb: false
+  minority_owned: false
+naics:
+  primary: "541512"
+  secondary:
+    - "541519"
+  tertiary:
+    - "518210"
+past_performance: []
