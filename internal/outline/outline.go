@@ -29,7 +29,7 @@ type Section struct {
 // It is the input the next agent in Zone 2 (KAI-4: formatting rules) consumes.
 type Outline struct {
 	OpportunityID string
-	Title         string    // opportunity title, carried for context
+	Title         string // opportunity title, carried for context
 	Sections      []Section
 	GeneratedAt   time.Time
 }
