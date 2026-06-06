@@ -454,9 +454,12 @@ jobs:
         fi
 
         git add .
-        git commit -m "AI auto-fix: Apply fixes from code review [skip ci]
+        git commit -m "$(cat <<'COMMIT_MSG'
+AI auto-fix: Apply fixes from code review [skip ci]
 
-Co-Authored-By: Gemini 2.5 Pro <noreply@google.com>"
+Co-Authored-By: Gemini 2.5 Pro <noreply@google.com>
+COMMIT_MSG
+)"
 
         # Push to PR branch
         git push origin ${{ github.event.pull_request.head.ref }}
