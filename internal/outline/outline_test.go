@@ -9,26 +9,27 @@ import (
 	"github.com/Mawar2/Kaimi/internal/opportunity"
 )
 
+var testTime = time.Date(2024, 1, 1, 12, 0, 0, 0, time.UTC)
+
 // cachedOpportunity returns a realistic Opportunity for use in tests.
 // This is the "cached test fixture" — no live API calls needed.
 func cachedOpportunity() *opportunity.Opportunity {
-	now := time.Now().UTC().Truncate(time.Second)
 	return &opportunity.Opportunity{
 		ID:               "CACHED-TEST-001",
 		Title:            "IT Systems Design Services",
 		SolicitationNum:  "SOL-2026-TEST-001",
 		Agency:           "Department of Defense",
 		Office:           "Office of the CIO",
-		PostedDate:       now,
-		ResponseDeadline: now.Add(30 * 24 * time.Hour),
+		PostedDate:       testTime,
+		ResponseDeadline: testTime.Add(30 * 24 * time.Hour),
 		NAICSCode:        "541512",
 		NAICSDescription: "Computer Systems Design Services",
 		SetAsideCode:     "SBA",
 		Description:      "Provide IT systems design and integration services.",
 		Type:             "Solicitation",
 		URL:              "https://sam.gov/test/cached-001",
-		CreatedAt:        now,
-		UpdatedAt:        now,
+		CreatedAt:        testTime,
+		UpdatedAt:        testTime,
 	}
 }
 
@@ -48,11 +49,12 @@ func TestOutlineAgent_HappyPath(t *testing.T) {
 	if result.Status != agent.StatusSuccess {
 		t.Errorf("Status = %q, want %q", result.Status, agent.StatusSuccess)
 	}
-	if result.AgentName == "" {
-		t.Error("AgentName must not be empty")
+	if result.AgentName != agentName {
+		t.Errorf("AgentName = %q, want %q", result.AgentName, agentName)
 	}
-	if result.Summary == "" {
-		t.Error("Summary must not be empty")
+	const wantSummary = "outline stub complete for opportunity CACHED-TEST-001: IT Systems Design Services"
+	if result.Summary != wantSummary {
+		t.Errorf("Summary = %q, want %q", result.Summary, wantSummary)
 	}
 }
 
