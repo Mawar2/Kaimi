@@ -83,10 +83,42 @@ downstream agent enriches it. **Design this struct now to hold all downstream fi
 even though Phase 0 only populates the Hunter's portion** — changing this schema
 later is the highest integration risk in the project.
 
-A later phase will add an `AgentResult` return type that every Zone 2 agent conforms
-to (fields: agent name, status of `success`/`failed`/`needs_human`, a summary, an
-output reference, and flags). You do not build this in Phase 0, but know it's coming
-so your foundations don't preclude it.
+### AgentResult contract — LOCKED (internal/agent)
+
+Every agent returns an `AgentResult`. This contract is now locked; downstream agents
+(Scorer, Manager, Outline, Writer, Final Review) must conform to it.
+
+**Fields:**
+
+| Field | Type | JSON key | Required | Description |
+|-------|------|----------|----------|-------------|
+| `AgentName` | `string` | `agent_name` | yes | Which agent produced this result (e.g. `"hunter"`) |
+| `Status` | `Status` | `status` | yes | Completion state — see status table below |
+| `NoticeID` | `string` | `notice_id` | no | SAM.gov notice ID the agent worked on |
+| `Summary` | `string` | `summary` | no | Human-readable description of what was done |
+| `OutputRef` | `string` | `output_ref` | no | Pointer to the primary output artifact (file path, queue key, etc.) |
+| `Flags` | `map[string]string` | `flags` | no | Extensible key/value metadata for downstream consumers |
+| `Error` | `string` | `error` | no | Error message (only present when `Status == failed`) |
+| `CompletedAt` | `time.Time` | `completed_at` | yes | When the agent finished |
+
+Optional fields are omitted from JSON when empty (`omitempty`).
+
+**Status enum:**
+
+| Value | Constant | IsTerminal | Meaning |
+|-------|----------|------------|---------|
+| `"success"` | `StatusSuccess` | yes | Agent completed its job without errors |
+| `"failed"` | `StatusFailed` | yes | Agent encountered an unrecoverable error |
+| `"needs_human"` | `StatusNeedsHuman` | **no** | Agent paused — human judgment required before re-invocation |
+| `"ready_to_submit"` | `StatusReadyToSubmit` | yes | Output cleared for human-approved submission (Zone 2 final gate) |
+
+`IsTerminal()` returns `false` for `needs_human` because the Manager must
+re-invoke the agent after the human resolves the ambiguity.
+
+**Helper methods** (pointer receivers on `*AgentResult`):
+`IsSuccess()`, `IsFailed()`, `NeedsHuman()`, `IsTerminal()`
+
+**Implementation:** `internal/agent/` — `doc.go`, `result.go`, `stub.go`
 
 ---
 
@@ -108,7 +140,7 @@ the Hunter.
 
 | Phase | Scope | Do you build it now? |
 |-------|-------|----------------------|
-| **0** | Foundation + Hunter agent + Opportunity schema + queue interface | **YES — this is the current task** |
+| **0** | Foundation + Hunter agent + Opportunity schema + queue interface + AgentResult contract | **YES — this is the current task** |
 | 1 | Scorer agent + real queue (Firestore) + daily scheduling | No |
 | 2 | Manager + Zone 2 orchestration + selection event | No |
 | 3 | Outline + Writer + Final Review + past-performance knowledge base (RAG) | No |
@@ -119,12 +151,13 @@ the Hunter.
 ## Scope discipline (read this twice)
 
 You are building **Phase 0 only**: project foundation, the Hunter agent, the
-`Opportunity` schema, and the queue interface. A separate build brief specifies the
-exact Phase 0 work.
+`Opportunity` schema, the queue interface, and the `AgentResult` contract. A separate
+build brief specifies the exact Phase 0 work.
 
 - **Do NOT** build the Scorer, Manager, Outline, Writer, or Final Review agents.
 - **Do NOT** deploy databases, Agent Engine, vector search, or scheduling yet.
-- **Do NOT** implement the `AgentResult` contract yet (just don't preclude it).
+- **DO** use `internal/agent.AgentResult` as the return type for all agents.
+- **DO** use `internal/agent.StubAgent` as the starting template for new agents.
 - **DO** make the `Opportunity` schema and the `Store` interface forward-compatible.
 - **DO** keep the code simple, conventional, and well-commented.
 
