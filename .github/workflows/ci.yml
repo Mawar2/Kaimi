@@ -454,12 +454,7 @@ jobs:
         fi
 
         git add .
-        git commit -m "$(cat <<'COMMIT_MSG'
-AI auto-fix: Apply fixes from code review [skip ci]
-
-Co-Authored-By: Gemini 2.5 Pro <noreply@google.com>
-COMMIT_MSG
-)"
+        git commit -m "AI auto-fix: Apply fixes from code review [skip ci]" -m "Co-Authored-By: Gemini 2.5 Pro <noreply@google.com>"
 
         # Push to PR branch
         git push origin ${{ github.event.pull_request.head.ref }}
@@ -477,14 +472,16 @@ COMMIT_MSG
             `- **${i.file}:${i.line}** (${i.type}): ${i.description}`
           ).join('\n');
 
-          const body = `## 🔧 Auto-Fix Bot
-
-Applied ${issues.length} automatic fix(es):
-
-${fixList}
-
----
-*These fixes were automatically generated and applied by Gemini 2.5 Pro. Please review the changes before merging.*`;
+          const body = [
+            "## 🔧 Auto-Fix Bot",
+            "",
+            `Applied ${issues.length} automatic fix(es):`,
+            "",
+            fixList,
+            "",
+            "---",
+            "*These fixes were automatically generated and applied by Gemini 2.5 Pro. Please review the changes before merging.*"
+          ].join("\n");
 
           await github.rest.issues.createComment({
             owner: context.repo.owner,
