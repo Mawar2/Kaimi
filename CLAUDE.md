@@ -138,6 +138,69 @@ Every pull request triggers an AI code review job (`.github/workflows/ci.yml` - 
 - Cost: Pay-as-you-go (first 50 requests/day free)
 - Runs on: Every PR from non-fork branches
 
+## Auto-Fix Bot (Automated Code Fixes)
+
+The project has an **auto-fix bot** that automatically fixes simple issues identified by the AI code review.
+
+### How It Works
+
+After the AI code review completes, if it finds any **auto-fixable** issues, the auto-fix bot:
+1. Parses the structured JSON review output
+2. Identifies issues marked as `autoFixable: true`
+3. For each fixable issue:
+   - Calls Gemini 2.5 Pro to generate a fix
+   - Applies the fix to the file
+4. Commits all fixes with message: `AI auto-fix: Apply fixes from code review [skip ci]`
+5. Pushes the fixes to the PR branch
+6. Posts a summary comment listing all fixes applied
+
+### What Gets Auto-Fixed
+
+The bot ONLY fixes **simple, unambiguous issues**:
+- ✅ Unused variables
+- ✅ Simple formatting issues
+- ✅ Basic Go best practice violations
+- ✅ Test coverage additions (missing test cases)
+- ❌ Complex logic bugs (requires human judgment)
+- ❌ Architectural changes (requires design decision)
+- ❌ Security issues (requires careful review)
+
+**Gemini decides** which issues are auto-fixable based on complexity and risk.
+
+### Safety Measures
+
+1. **Human review still required** - Auto-fix commits are NOT auto-merged; you still review before merge
+2. **Only runs on same-repo PRs** - Never runs on fork PRs (security risk)
+3. **Skips draft PRs** - Only runs on PRs marked "Ready for review"
+4. **[skip ci] in commit message** - Prevents infinite loop of reviews
+5. **Clear audit trail** - Commit message and PR comment explain what was fixed
+6. **Never auto-merges** - Human approval required for ALL merges
+
+### How to Use Auto-Fix
+
+**Normal workflow:**
+1. Open PR (non-draft, ready for review)
+2. AI review runs and identifies issues
+3. Auto-fix bot automatically fixes simple issues and pushes commit
+4. Review the auto-fix commit - verify fixes are correct
+5. Address any remaining non-auto-fixable issues manually
+6. Request human review when ready
+
+**If auto-fix makes a mistake:**
+- Just push another commit to fix it (the fix commit is not special)
+- Or revert the auto-fix commit with `git revert`
+- Document what went wrong on the PR so we can improve the system
+
+**Cost:** ~$0.01-$0.06 per PR with auto-fixable issues (within Gemini free tier)
+
+### Technical Details
+
+- Implemented in: `.github/workflows/ci.yml` - `auto-fix` job
+- Runs after: `ai-code-review` job completes
+- Condition: Only runs if `fixable_count > 0`
+- Model: Gemini 2.5 Pro (same as code review, temperature 0.1 for deterministic fixes)
+- Bot user: "Kaimi Auto-Fix Bot" (`bot@kaimi-seeker.iam.gserviceaccount.com`)
+
 ## AI Sub-Agent Review Protocol (from WORKFLOW.md)
 
 In addition to the automated CI review, when a feature is considered complete, BEFORE opening it for human review, you may spin up an **AI sub-agent review team** for deeper analysis. This is separate from the CI review and checks:
