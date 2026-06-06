@@ -109,17 +109,21 @@ var (
 	// fonts: "Arial 12-point", "Times New Roman 11-point", "Calibri 12 point"
 	fontRE = regexp.MustCompile(`(?i)(arial|times new roman|calibri|courier new)\s+(\d+)\s*-?\s*point`)
 
-	// margins: "1-inch margins", "one inch margins", "minimum 1-inch margin"
-	marginRE = regexp.MustCompile(`(?i)(\d+)\s*-?\s*inch\s+(?:minimum\s+)?margins?`)
+	// margins: "1-inch margins", "0.5-inch margins", "minimum 1-inch margin"
+	marginRE = regexp.MustCompile(`(?i)(\d+(?:\.\d+)?)\s*-?\s*inch\s+(?:minimum\s+)?margins?`)
 
 	// line spacing: "single-spaced", "double-spaced", "1.5-spaced"
 	spacingRE = regexp.MustCompile(`(?i)(single|double|1\.5)\s*-?\s*spaced`)
 
-	// file format: "submitted as PDF", "in PDF format", "Microsoft Word", ".docx"
-	fileFormatRE = regexp.MustCompile(`(?i)\b(pdf|microsoft word|\.docx?)\b`)
+	// file format: "submitted as PDF", "in PDF format", "Microsoft Word", ".doc", ".docx"
+	// .docx? uses a separate group without a leading \b because . is not a word char.
+	fileFormatRE = regexp.MustCompile(`(?i)\b(pdf|microsoft word)\b|(\.docx?)\b`)
 
 	// government forms: "SF-330", "SF 1449", "DD Form 254", "DD-1423"
 	formRE = regexp.MustCompile(`(?i)\b(SF|DD(?:\s+Form)?)\s*-?\s*(\d+)\b`)
+
+	// ip as a standalone abbreviation: matches "IP." "(IP)" "IP rights" but not "zip" or "tip"
+	ipRE = regexp.MustCompile(`(?i)\bip\b`)
 )
 
 // extractFormattingRules parses the opportunity description for stated formatting
@@ -153,7 +157,15 @@ func extractFormattingRules(opp *opportunity.Opportunity) *FormattingRules {
 	}
 
 	if m := fileFormatRE.FindStringSubmatch(desc); m != nil {
-		rules.FileFormat = specified(strings.ToUpper(m[1]))
+		val := strings.ToLower(m[1])
+		if val == "" {
+			val = strings.ToLower(m[2])
+		}
+		canonical := "PDF"
+		if strings.HasPrefix(val, ".doc") || val == "microsoft word" {
+			canonical = "Microsoft Word"
+		}
+		rules.FileFormat = specified(canonical)
 	}
 
 	// Collect all government form numbers mentioned, deduplicated.
@@ -196,31 +208,31 @@ func buildSections(opp *opportunity.Opportunity) []Section {
 			ID:        "executive_summary",
 			Title:     "Executive Summary",
 			Required:  true,
-			Rationale: "required for all federal solicitations",
+			Rationale: "standard section for federal proposals",
 		},
 		{
 			ID:        "technical_approach",
 			Title:     "Technical Approach",
 			Required:  true,
-			Rationale: "required for all federal solicitations",
+			Rationale: "standard section for federal proposals",
 		},
 		{
 			ID:        "management_approach",
 			Title:     "Management Approach",
 			Required:  true,
-			Rationale: "required for all federal solicitations",
+			Rationale: "standard section for federal proposals",
 		},
 		{
 			ID:        "past_performance",
 			Title:     "Past Performance",
 			Required:  true,
-			Rationale: "required for all federal solicitations",
+			Rationale: "standard section for federal proposals",
 		},
 		{
 			ID:        "price_cost_volume",
 			Title:     "Price/Cost Volume",
 			Required:  true,
-			Rationale: "required for all federal solicitations",
+			Rationale: "standard section for federal proposals",
 		},
 	}
 
@@ -275,7 +287,7 @@ func buildSections(opp *opportunity.Opportunity) []Section {
 	}
 
 	// Data rights appear in technology and software contracts.
-	if containsAny(desc, "data right", "intellectual property", " ip ", "technical data") {
+	if containsAny(desc, "data right", "intellectual property", "technical data") || ipRE.MatchString(desc) {
 		sections = append(sections, Section{
 			ID:        "data_rights",
 			Title:     "Data Rights and Intellectual Property",
