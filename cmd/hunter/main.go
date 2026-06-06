@@ -7,17 +7,17 @@
 // Configuration is read from environment variables or command-line flags:
 //   - MODE: "cached" or "live" (default: cached)
 //   - SAM_API_KEY: SAM.gov API key (required for live mode)
-//   - NAICS_CODES: Comma-separated list of NAICS codes (default: "541512,541519")
+//   - PROFILE_PATH: path to JSON or YAML capability profile (default: embedded BlueMeta)
 //   - STORE_TYPE: Store implementation type (default: "json")
 //   - STORE_PATH: Path to store directory (default: "./queue")
 //
 // Example usage:
 //
-//	# Run in cached mode (for testing)
+//	# Run in cached mode using embedded profile
 //	go run cmd/hunter/main.go --mode=cached
 //
-//	# Run in live mode
-//	SAM_API_KEY=your-key go run cmd/hunter/main.go --mode=live --naics=541512,541519
+//	# Run in live mode with a custom profile
+//	SAM_API_KEY=your-key go run cmd/hunter/main.go --mode=live --profile=profile.json
 package main
 
 import (
@@ -36,11 +36,12 @@ import (
 
 // Config holds the Hunter agent configuration.
 type Config struct {
-	Mode       string   // "cached" or "live"
-	APIKey     string   // SAM.gov API key
-	NAICSCodes []string // NAICS codes to search for
-	StoreType  string   // Store implementation type ("json")
-	StorePath  string   // Path to store directory
+	Mode        string   // "cached" or "live"
+	APIKey      string   // SAM.gov API key
+	ProfilePath string   // path to capability profile JSON/YAML (empty = use embedded BlueMeta)
+	NAICSCodes  []string // NAICS codes to search; populated from profile when empty
+	StoreType   string   // Store implementation type ("json")
+	StorePath   string   // Path to store directory
 }
 
 func main() {
@@ -50,54 +51,69 @@ func main() {
 	}
 }
 
-// run contains the main logic for the Hunter agent.
+// run parses configuration and delegates to runWithConfig.
 func run() error {
-	// Parse configuration
-	config := parseConfig()
+	cfg := parseConfig()
+	return runWithConfig(&cfg)
+}
 
-	// If no NAICS codes specified, use the full tiered list from the capability profile.
-	if len(config.NAICSCodes) == 0 {
-		config.NAICSCodes = profile.BlueMeta.NAICSCodes
+// runWithConfig runs the full Hunter pipeline with the given configuration.
+// It is extracted from run() to enable test injection without flag parsing.
+func runWithConfig(cfg *Config) error {
+	// Load capability profile: file if specified, otherwise embedded default.
+	var prof *profile.CapabilityProfile
+	if cfg.ProfilePath != "" {
+		var err error
+		prof, err = profile.LoadProfile(cfg.ProfilePath)
+		if err != nil {
+			return fmt.Errorf("failed to load profile: %w", err)
+		}
+	} else {
+		prof = profile.BlueMeta
 	}
 
-	// Validate configuration
-	if err := validateConfig(&config); err != nil {
+	// Derive NAICS codes from profile when not explicitly overridden.
+	if len(cfg.NAICSCodes) == 0 {
+		cfg.NAICSCodes = prof.AllNAICSCodes()
+	}
+
+	// Validate configuration after NAICS codes are resolved.
+	if err := validateConfig(cfg); err != nil {
 		return fmt.Errorf("invalid configuration: %w", err)
 	}
 
-	// Log configuration (excluding sensitive data)
 	fmt.Println("Hunter agent starting...")
-	fmt.Printf("Mode: %s\n", config.Mode)
-	fmt.Printf("NAICS codes: %v\n", config.NAICSCodes)
-	fmt.Printf("Store path: %s\n", config.StorePath)
+	fmt.Printf("Mode: %s\n", cfg.Mode)
+	fmt.Printf("NAICS codes: %v\n", cfg.NAICSCodes)
+	fmt.Printf("Store path: %s\n", cfg.StorePath)
 
-	// Initialize SAM.gov client
+	// Initialize SAM.gov client.
 	samClient, err := samgov.NewClient(samgov.Config{
-		APIKey:    config.APIKey,
-		UseCached: config.Mode == "cached",
+		APIKey:    cfg.APIKey,
+		UseCached: cfg.Mode == "cached",
 	})
 	if err != nil {
 		return fmt.Errorf("failed to create SAM.gov client: %w", err)
 	}
 
-	// Initialize Store
+	// Initialize Store.
 	var opportunityStore store.Store
-	switch config.StoreType {
+	switch cfg.StoreType {
 	case "json":
-		opportunityStore, err = store.NewJSONStore(config.StorePath)
+		opportunityStore, err = store.NewJSONStore(cfg.StorePath)
 		if err != nil {
 			return fmt.Errorf("failed to create JSON store: %w", err)
 		}
 	default:
-		return fmt.Errorf("unsupported store type: %s", config.StoreType)
+		return fmt.Errorf("unsupported store type: %s", cfg.StoreType)
 	}
 
-	// Fetch opportunities from SAM.gov
+	// Fetch opportunities from SAM.gov.
 	ctx := context.Background()
 	fmt.Println("Fetching opportunities from SAM.gov...")
 	startTime := time.Now()
 
-	opportunities, err := samClient.FetchByNAICS(ctx, config.NAICSCodes)
+	opportunities, err := samClient.FetchByNAICS(ctx, cfg.NAICSCodes)
 	if err != nil {
 		return fmt.Errorf("failed to fetch opportunities: %w", err)
 	}
@@ -105,12 +121,13 @@ func run() error {
 	fetchDuration := time.Since(startTime)
 	fmt.Printf("Fetched %d opportunities in %v\n", len(opportunities), fetchDuration)
 
-	// Apply eligibility gate: drop set-asides for programs BlueMeta doesn't hold.
+	// Apply eligibility gate: drop set-asides BlueMeta is not eligible for.
 	fmt.Println("Applying eligibility gate...")
-	eligible, filtered := filterEligible(opportunities, profile.BlueMeta)
-	fmt.Printf("Eligibility gate: %d eligible, %d dropped (ineligible set-aside)\n", len(eligible), filtered)
+	eligible, filtered := filterEligible(opportunities)
+	fmt.Printf("Eligibility gate: %d eligible, %d dropped (ineligible set-aside)\n",
+		len(eligible), filtered)
 
-	// Save eligible opportunities to store
+	// Save eligible opportunities to store.
 	fmt.Println("Saving eligible opportunities to store...")
 	savedCount := 0
 	errorCount := 0
@@ -124,7 +141,6 @@ func run() error {
 		savedCount++
 	}
 
-	// Log summary
 	totalDuration := time.Since(startTime)
 	fmt.Println("\n--- Hunter Summary ---")
 	fmt.Printf("Opportunities fetched: %d\n", len(opportunities))
@@ -143,85 +159,104 @@ func run() error {
 
 // parseConfig reads configuration from environment variables and command-line flags.
 func parseConfig() Config {
-	// Define command-line flags
 	mode := flag.String("mode", getEnv("MODE", "cached"), "Mode: cached or live")
-	// Default empty: run() falls back to profile.BlueMeta.NAICSCodes when not specified.
-	naicsStr := flag.String("naics", getEnv("NAICS_CODES", ""), "Comma-separated NAICS codes (default: full profile list)")
+	profilePath := flag.String("profile", getEnv("PROFILE_PATH", ""),
+		"Path to capability profile JSON or YAML file (default: embedded BlueMeta profile)")
 	storeType := flag.String("store-type", getEnv("STORE_TYPE", "json"), "Store type: json")
 	storePath := flag.String("store-path", getEnv("STORE_PATH", "./queue"), "Store directory path")
 
 	flag.Parse()
 
-	// Get API key from environment (never from command-line for security)
+	// API key is always from environment for security.
 	apiKey := os.Getenv("SAM_API_KEY")
 
-	// Parse NAICS codes; if empty, run() will substitute the full profile list
-	naicsCodes := parseNAICSCodes(*naicsStr)
-
 	return Config{
-		Mode:       *mode,
-		APIKey:     apiKey,
-		NAICSCodes: naicsCodes,
-		StoreType:  *storeType,
-		StorePath:  *storePath,
+		Mode:        *mode,
+		APIKey:      apiKey,
+		ProfilePath: *profilePath,
+		StoreType:   *storeType,
+		StorePath:   *storePath,
 	}
 }
 
-// validateConfig validates the configuration.
-func validateConfig(config *Config) error {
-	// Validate mode
-	if config.Mode != "cached" && config.Mode != "live" {
-		return fmt.Errorf("mode must be 'cached' or 'live', got: %s", config.Mode)
+// validateConfig validates the configuration. NAICSCodes must be populated
+// before calling (runWithConfig derives them from the profile first).
+func validateConfig(cfg *Config) error {
+	if cfg.Mode != "cached" && cfg.Mode != "live" {
+		return fmt.Errorf("mode must be 'cached' or 'live', got: %s", cfg.Mode)
 	}
 
-	// Validate API key for live mode
-	if config.Mode == "live" && config.APIKey == "" {
+	if cfg.Mode == "live" && cfg.APIKey == "" {
 		return fmt.Errorf("SAM_API_KEY environment variable is required for live mode")
 	}
 
-	// Validate NAICS codes
-	if len(config.NAICSCodes) == 0 {
+	if len(cfg.NAICSCodes) == 0 {
 		return fmt.Errorf("at least one NAICS code is required")
 	}
 
-	// Validate store type
-	if config.StoreType != "json" {
-		return fmt.Errorf("unsupported store type: %s (only 'json' is supported in Phase 0)", config.StoreType)
+	if cfg.StoreType != "json" {
+		return fmt.Errorf("unsupported store type: %s (only 'json' is supported in Phase 0)",
+			cfg.StoreType)
 	}
 
 	return nil
 }
 
-// filterEligible applies the capability profile eligibility gate, returning the
-// subset of opportunities that pass along with a count of those dropped.
-func filterEligible(opportunities []*opportunity.Opportunity, p *profile.CapabilityProfile) (eligible []*opportunity.Opportunity, dropped int) {
+// filterEligible applies the eligibility gate, returning the subset of opportunities
+// that pass along with a count of those dropped.
+func filterEligible(opportunities []*opportunity.Opportunity) (eligible []*opportunity.Opportunity, dropped int) {
 	eligible = make([]*opportunity.Opportunity, 0, len(opportunities))
 	for _, opp := range opportunities {
-		if p.IsEligible(opp) {
+		if isEligible(opp.SetAsideCode) {
 			eligible = append(eligible, opp)
 		} else {
-			fmt.Fprintf(os.Stderr, "Dropped ineligible opportunity %s (set-aside: %q)\n", opp.ID, opp.SetAsideCode)
+			fmt.Fprintf(os.Stderr, "Dropped ineligible opportunity %s (set-aside: %q)\n",
+				opp.ID, opp.SetAsideCode)
 			dropped++
 		}
 	}
 	return eligible, dropped
 }
 
-// parseNAICSCodes parses a comma-separated string of NAICS codes.
-func parseNAICSCodes(s string) []string {
-	if s == "" {
-		return nil
+// isEligible reports whether a SAM.gov set-aside code is eligible for BlueMeta.
+//
+// The switch covers all known set-aside families. Unrecognized codes pass through
+// to avoid false negatives — it is better to score an ineligible opportunity than
+// to silently drop an eligible one.
+//
+// Decision table:
+//
+//	""/"NONE"           → eligible  (full-and-open)
+//	SBA/SBP             → eligible  (small business; BlueMeta qualifies)
+//	8A/8(A)/8AN         → ineligible (8(a) cert not held)
+//	SDVOSB/SDVOSBC      → ineligible (SDVOSB cert not held)
+//	WOSB/EDWOSB         → ineligible (WOSB cert not held)
+//	HUBZONE/HUB         → ineligible (HUBZone cert not held)
+//	VOSB                → ineligible (VOSB cert not held)
+//	IEE/ISBEE           → ineligible (Indian enterprise cert not held)
+//	unrecognized        → eligible  (conservative passthrough)
+func isEligible(setAsideCode string) bool {
+	code := strings.ToUpper(strings.TrimSpace(setAsideCode))
+	switch code {
+	case "", "NONE":
+		return true
+	case "SBA", "SBP":
+		return true
+	case "8A", "8(A)", "8AN":
+		return false
+	case "SDVOSB", "SDVOSBC", "SDVOSBS":
+		return false
+	case "WOSB", "EDWOSB", "WOSBSS", "EDWOSBSS":
+		return false
+	case "HUBZONE", "HUB", "HZC", "HZS":
+		return false
+	case "VOSB":
+		return false
+	case "IEE", "ISBEE":
+		return false
+	default:
+		return true
 	}
-
-	parts := strings.Split(s, ",")
-	var codes []string
-	for _, part := range parts {
-		code := strings.TrimSpace(part)
-		if code != "" {
-			codes = append(codes, code)
-		}
-	}
-	return codes
 }
 
 // getEnv returns the value of an environment variable or a default value.
