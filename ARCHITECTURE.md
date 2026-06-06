@@ -83,10 +83,33 @@ downstream agent enriches it. **Design this struct now to hold all downstream fi
 even though Phase 0 only populates the Hunter's portion** — changing this schema
 later is the highest integration risk in the project.
 
-A later phase will add an `AgentResult` return type that every Zone 2 agent conforms
-to (fields: agent name, status of `success`/`failed`/`needs_human`, a summary, an
-output reference, and flags). You do not build this in Phase 0, but know it's coming
-so your foundations don't preclude it.
+Every agent returns an `AgentResult` (package `internal/agent`). This contract is
+locked so all downstream agents can be built and tested independently.
+
+### AgentResult fields
+
+| Field | Type | JSON key | Notes |
+|-------|------|----------|-------|
+| `AgentName` | `string` | `agent_name` | Identifies the agent (e.g. `"hunter"`) |
+| `Status` | `Status` | `status` | Typed enum — see table below |
+| `NoticeID` | `string` | `notice_id` | SAM.gov notice this result is for |
+| `Summary` | `string` | `summary` | Human-readable description of what the agent did |
+| `OutputRef` | `string` | `output_ref` | Optional: store key, file path, or URL for output artifact |
+| `Flags` | `map[string]string` | `flags` | Optional: extensible key-value metadata; omitted when nil |
+| `Error` | `string` | `error` | Optional: human-readable error; omitted when empty |
+| `CompletedAt` | `time.Time` | `completed_at` | UTC timestamp when agent finished |
+
+### Status enum
+
+| Value | Constant | IsTerminal? | Meaning |
+|-------|----------|-------------|---------|
+| `"success"` | `StatusSuccess` | yes | Agent completed successfully |
+| `"failed"` | `StatusFailed` | yes | Unrecoverable error; pipeline stops |
+| `"needs_human"` | `StatusNeedsHuman` | **no** | Human must act; coordinator re-invokes the agent after |
+| `"ready_to_submit"` | `StatusReadyToSubmit` | yes | Output ready for human review gate |
+
+`IsTerminal()` returns `false` only for `needs_human` — the coordinator must
+re-invoke the agent after the human resolves the ambiguity.
 
 ---
 
@@ -124,7 +147,7 @@ exact Phase 0 work.
 
 - **Do NOT** build the Scorer, Manager, Outline, Writer, or Final Review agents.
 - **Do NOT** deploy databases, Agent Engine, vector search, or scheduling yet.
-- **Do NOT** implement the `AgentResult` contract yet (just don't preclude it).
+- **DO** use `AgentResult` (locked in Phase 0) as the return type for all agents.
 - **DO** make the `Opportunity` schema and the `Store` interface forward-compatible.
 - **DO** keep the code simple, conventional, and well-commented.
 
