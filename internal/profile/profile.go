@@ -1,73 +1,107 @@
 // Package profile defines BlueMeta Technologies' capability profile for evaluating
 // federal contracting opportunities.
 //
-// The CapabilityProfile encodes what BlueMeta is legally eligible to bid on.
-// Hunter uses this profile to gate out set-asides for programs BlueMeta does not
-// hold, before opportunities reach the Scorer.
+// The CapabilityProfile encodes company capabilities, certifications, and past
+// performance. Hunter loads the profile from a JSON or YAML file via LoadProfile,
+// then resolves NAICS codes via AllNAICSCodes for SAM.gov queries.
 package profile
 
 import (
+	"encoding/json"
+	"fmt"
+	"os"
+	"path/filepath"
 	"strings"
 
-	"github.com/Mawar2/Kaimi/internal/opportunity"
+	"gopkg.in/yaml.v3"
 )
 
-// CapabilityProfile holds BlueMeta Technologies' certifications and NAICS codes,
-// used to determine binary bid eligibility at the Hunter gate.
-type CapabilityProfile struct {
-	// NAICSCodes is the full tiered list of codes BlueMeta can perform work under.
-	// Hunter uses this list when no NAICS override is specified.
-	NAICSCodes []string
+// NAICSTier represents the priority tier of a NAICS code.
+// Primary codes are the strongest work-type match; tertiary are the weakest.
+type NAICSTier string
 
-	// IneligibleSetAsides is the set of SAM.gov set-aside program codes BlueMeta does
-	// not hold. Opportunities reserved for these programs are dropped before scoring.
-	// Full-and-open (empty code) and SBA/SBP (small business) are eligible.
-	// SDB (Small Disadvantaged Business) is intentionally absent — left for the Scorer
-	// to weight rather than gate on, to avoid starving the pipeline.
-	IneligibleSetAsides map[string]struct{}
+const (
+	// TierPrimary indicates the core NAICS codes BlueMeta performs most frequently.
+	TierPrimary NAICSTier = "primary"
+
+	// TierSecondary indicates NAICS codes BlueMeta can perform with strong capability.
+	TierSecondary NAICSTier = "secondary"
+
+	// TierTertiary indicates NAICS codes BlueMeta can perform but are not a core focus.
+	TierTertiary NAICSTier = "tertiary"
+)
+
+// NAICSCode is a North American Industry Classification System code with its tier.
+type NAICSCode struct {
+	Code        string    `json:"code" yaml:"code"`
+	Description string    `json:"description" yaml:"description"`
+	Tier        NAICSTier `json:"tier" yaml:"tier"`
 }
 
-// BlueMeta is the current operational capability profile for BlueMeta Technologies.
-// Hunter uses this profile to gate SAM.gov opportunities by eligibility.
-var BlueMeta = &CapabilityProfile{
-	NAICSCodes: []string{
-		"541511", // Custom Computer Programming Services
-		"541512", // Computer Systems Design Services (primary)
-		"541513", // Computer Facilities Management Services
-		"541514", // Other Computer Related Services (misc)
-		"541519", // Other Computer Related Services (primary)
-		"518210", // Data Processing, Hosting, and Related Services
-		"541330", // Engineering Services
-		"541611", // Administrative Management and General Management Consulting
-		"541618", // Other Management Consulting Services
-		"541715", // Research and Development in the Physical, Engineering, and Life Sciences
-	},
-
-	IneligibleSetAsides: map[string]struct{}{
-		"8A":       {}, // 8(a) Business Development Program
-		"8AN":      {}, // 8(a) Sole Source
-		"SDVOSB":   {}, // Service-Disabled Veteran-Owned Small Business Set-Aside
-		"SDVOSBS":  {}, // SDVOSB Sole Source
-		"WOSB":     {}, // Women-Owned Small Business Set-Aside
-		"WOSBSS":   {}, // WOSB Sole Source
-		"EDWOSB":   {}, // Economically Disadvantaged Women-Owned Small Business
-		"EDWOSBSS": {}, // EDWOSB Sole Source
-		"HZC":      {}, // HUBZone Set-Aside
-		"HZS":      {}, // HUBZone Sole Source
-	},
+// SetAsideStatus represents eligibility for federal contracting set-aside programs.
+// Fields reflect which certifications BlueMeta holds (true) or does not hold (false).
+type SetAsideStatus struct {
+	SmallBusiness bool `json:"small_business" yaml:"small_business"`
+	SDB           bool `json:"sdb" yaml:"sdb"`
+	EightA        bool `json:"eight_a" yaml:"eight_a"`
+	SDVOSB        bool `json:"sdvosb" yaml:"sdvosb"`
+	WOSB          bool `json:"wosb" yaml:"wosb"`
+	HUBZone       bool `json:"hubzone" yaml:"hubzone"`
+	VOSB          bool `json:"vosb" yaml:"vosb"`
 }
 
-// IsEligible returns true if the opportunity passes BlueMeta's binary eligibility gate.
+// PastPerformance is a past project or contract entry (lightweight fact representation).
+// Full narratives and embeddings are reserved for the Phase 3 knowledge base.
+type PastPerformance struct {
+	Client       string   `json:"client" yaml:"client"`
+	Scope        string   `json:"scope" yaml:"scope"`
+	Value        string   `json:"value" yaml:"value"`
+	WhatItProves []string `json:"what_it_proves" yaml:"what_it_proves"`
+}
+
+// CapabilityProfile holds BlueMeta Technologies' certifications, NAICS codes,
+// and past performance for federal contracting eligibility and fit scoring.
 //
-// An opportunity is eligible when its set-aside code is not reserved for a program
-// BlueMeta does not hold. Full-and-open opportunities (empty set-aside) are always
-// eligible. SBA and SBP (small business set-asides) are eligible. SDB is not gated here.
-func (p *CapabilityProfile) IsEligible(opp *opportunity.Opportunity) bool {
-	code := strings.ToUpper(strings.TrimSpace(opp.SetAsideCode))
-	if code == "" {
-		// Full-and-open: no set-aside restriction
-		return true
+// Hunter loads this from profile.json (or a YAML equivalent) to resolve the NAICS
+// code list for SAM.gov queries.
+type CapabilityProfile struct {
+	Company         string            `json:"company" yaml:"company"`
+	NAICSCodes      []NAICSCode       `json:"naics_codes" yaml:"naics_codes"`
+	SetAside        SetAsideStatus    `json:"set_aside" yaml:"set_aside"`
+	PastPerformance []PastPerformance `json:"past_performance" yaml:"past_performance"`
+}
+
+// LoadProfile loads a CapabilityProfile from a JSON or YAML file.
+// The format is determined by the file extension: .json, .yaml, or .yml.
+func LoadProfile(path string) (*CapabilityProfile, error) {
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return nil, fmt.Errorf("failed to read profile file: %w", err)
 	}
-	_, ineligible := p.IneligibleSetAsides[code]
-	return !ineligible
+
+	var p CapabilityProfile
+	switch ext := strings.ToLower(filepath.Ext(path)); ext {
+	case ".json":
+		if err := json.Unmarshal(data, &p); err != nil {
+			return nil, fmt.Errorf("failed to parse JSON profile: %w", err)
+		}
+	case ".yaml", ".yml":
+		if err := yaml.Unmarshal(data, &p); err != nil {
+			return nil, fmt.Errorf("failed to parse YAML profile: %w", err)
+		}
+	default:
+		return nil, fmt.Errorf("unsupported profile format %q (use .json, .yaml, or .yml)", ext)
+	}
+
+	return &p, nil
+}
+
+// AllNAICSCodes returns a flat list of all NAICS code strings across all tiers,
+// ordered as they appear in the profile (primary first by convention).
+func (p *CapabilityProfile) AllNAICSCodes() []string {
+	codes := make([]string, 0, len(p.NAICSCodes))
+	for _, nc := range p.NAICSCodes {
+		codes = append(codes, nc.Code)
+	}
+	return codes
 }

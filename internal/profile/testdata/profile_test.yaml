@@ -1,0 +1,32 @@
+company: "Test Company LLC"
+naics_codes:
+  - code: "541512"
+    description: "Computer Systems Design Services"
+    tier: primary
+  - code: "541519"
+    description: "Other Computer Related Services"
+    tier: secondary
+  - code: "518210"
+    description: "Data Processing and Hosting"
+    tier: tertiary
+set_aside:
+  small_business: true
+  sdb: true
+  eight_a: false
+  sdvosb: false
+  wosb: false
+  hubzone: false
+  vosb: false
+past_performance:
+  - client: "Test Agency Alpha"
+    scope: "Cloud migration project"
+    value: "$500K"
+    what_it_proves:
+      - "Cloud expertise"
+      - "Federal experience"
+  - client: "Test Agency Beta"
+    scope: "AI platform development"
+    value: "$1.2M"
+    what_it_proves:
+      - "AI/ML capability"
+      - "Data engineering"
