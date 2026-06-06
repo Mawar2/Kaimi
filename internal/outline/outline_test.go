@@ -180,6 +180,11 @@ func TestBuildSections_KeywordsAddSections(t *testing.T) {
 			description: "All technical data produced under this contract is subject to unlimited data rights.",
 			wantSection: "data_rights",
 		},
+		{
+			name:        "ip keyword",
+			description: "All IP generated under this contract is property of the government.",
+			wantSection: "data_rights",
+		},
 	}
 
 	for _, tc := range cases {
@@ -331,7 +336,9 @@ func TestExtractFormattingRules_FileFormat(t *testing.T) {
 	}{
 		{"Submit the proposal in PDF format.", "PDF"},
 		{"Proposals submitted as pdf will be accepted.", "PDF"},
-		{"Submit as Microsoft Word.", "MICROSOFT WORD"},
+		{"Submit as Microsoft Word.", "Microsoft Word"},
+		{"Submissions must be in .docx format.", "Microsoft Word"},
+		{"Older .doc files are also accepted.", "Microsoft Word"},
 	}
 	for _, tc := range cases {
 		t.Run(tc.wantValue, func(t *testing.T) {
