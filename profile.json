@@ -1,0 +1,91 @@
+{
+  "company": "BlueMeta Technologies LLC",
+  "naics_codes": [
+    {
+      "code": "541512",
+      "description": "Computer Systems Design Services",
+      "tier": "primary"
+    },
+    {
+      "code": "541519",
+      "description": "Other Computer Related Services",
+      "tier": "primary"
+    },
+    {
+      "code": "518210",
+      "description": "Data Processing, Hosting, and Related Services",
+      "tier": "primary"
+    },
+    {
+      "code": "541511",
+      "description": "Custom Computer Programming Services",
+      "tier": "secondary"
+    },
+    {
+      "code": "541330",
+      "description": "Engineering Services",
+      "tier": "secondary"
+    },
+    {
+      "code": "541611",
+      "description": "Administrative Management Consulting Services",
+      "tier": "secondary"
+    },
+    {
+      "code": "541513",
+      "description": "Computer Facilities Management Services",
+      "tier": "tertiary"
+    },
+    {
+      "code": "541618",
+      "description": "Other Management Consulting Services",
+      "tier": "tertiary"
+    },
+    {
+      "code": "541715",
+      "description": "Research and Development in Physical and Engineering Sciences",
+      "tier": "tertiary"
+    }
+  ],
+  "set_aside": {
+    "small_business": true,
+    "sdb": true,
+    "eight_a": false,
+    "sdvosb": false,
+    "wosb": false,
+    "hubzone": false,
+    "vosb": false
+  },
+  "past_performance": [
+    {
+      "client": "U.S. Census Bureau",
+      "scope": "AI/ML data analysis platform for 2030 decennial planning",
+      "value": "$180,000",
+      "what_it_proves": ["Federal experience", "AI/ML capability", "Data engineering"]
+    },
+    {
+      "client": "Justice40 Initiative (DOE)",
+      "scope": "Environmental justice data platform and community scoring tool",
+      "value": "$54,000",
+      "what_it_proves": ["Federal experience", "Data visualization", "Policy analytics"]
+    },
+    {
+      "client": "ByBlack (U.S. Black Chambers, Inc.)",
+      "scope": "National Black-owned business marketplace — mobile app and API",
+      "value": "Research partnership",
+      "what_it_proves": ["Mobile development", "API design", "Marketplace platforms"]
+    },
+    {
+      "client": "Synergee AI",
+      "scope": "AI-powered B2B sales intelligence platform",
+      "value": "$120,000",
+      "what_it_proves": ["AI/ML capability", "SaaS development", "NLP/LLM integration"]
+    },
+    {
+      "client": "Maryland Department of Labor",
+      "scope": "Identity verification system for unemployment insurance anti-fraud",
+      "value": "$75,000",
+      "what_it_proves": ["Identity verification", "State government experience", "Fraud detection"]
+    }
+  ]
+}
