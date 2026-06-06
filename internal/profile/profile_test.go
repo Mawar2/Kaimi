@@ -1,51 +1,63 @@
 package profile
 
 import (
+	"path/filepath"
 	"testing"
 
 	"github.com/Mawar2/Kaimi/internal/opportunity"
 )
 
-// TestIsEligible verifies the eligibility gate against BlueMeta's capability profile.
+// TestIsEligible verifies the eligibility switch against all known SAM.gov set-aside families.
 func TestIsEligible(t *testing.T) {
+	p := &CapabilityProfile{}
+
 	tests := []struct {
 		name         string
 		setAsideCode string
 		wantEligible bool
 	}{
 		// Full-and-open: always eligible
-		{name: "full-and-open empty string", setAsideCode: "", wantEligible: true},
+		{"empty string (full-and-open)", "", true},
+		{"NONE", "NONE", true},
 
 		// Small business set-asides: eligible
-		{name: "small business (SBA)", setAsideCode: "SBA", wantEligible: true},
-		{name: "partial small business (SBP)", setAsideCode: "SBP", wantEligible: true},
+		{"SBA (small business)", "SBA", true},
+		{"SBP (partial small business)", "SBP", true},
+		{"SDB (small disadvantaged)", "SDB", true},
 
-		// 8(a): BlueMeta does not hold this certification
-		{name: "8(a) set-aside", setAsideCode: "8A", wantEligible: false},
-		{name: "8(a) sole source", setAsideCode: "8AN", wantEligible: false},
+		// 8(a): BlueMeta not certified
+		{"8A set-aside", "8A", false},
+		{"8(A) set-aside", "8(A)", false},
+		{"8AN sole source", "8AN", false},
 
-		// SDVOSB: BlueMeta does not hold this certification
-		{name: "SDVOSB set-aside", setAsideCode: "SDVOSB", wantEligible: false},
-		{name: "SDVOSB sole source", setAsideCode: "SDVOSBS", wantEligible: false},
+		// SDVOSB: not held
+		{"SDVOSB set-aside", "SDVOSB", false},
+		{"SDVOSBC (SDVOSB competitive)", "SDVOSBC", false},
 
-		// WOSB / EDWOSB: BlueMeta does not hold these certifications
-		{name: "WOSB set-aside", setAsideCode: "WOSB", wantEligible: false},
-		{name: "WOSB sole source", setAsideCode: "WOSBSS", wantEligible: false},
-		{name: "EDWOSB set-aside", setAsideCode: "EDWOSB", wantEligible: false},
-		{name: "EDWOSB sole source", setAsideCode: "EDWOSBSS", wantEligible: false},
+		// WOSB / EDWOSB: not held
+		{"WOSB set-aside", "WOSB", false},
+		{"EDWOSB set-aside", "EDWOSB", false},
 
-		// HUBZone: BlueMeta does not hold this certification
-		{name: "HUBZone set-aside", setAsideCode: "HZC", wantEligible: false},
-		{name: "HUBZone sole source", setAsideCode: "HZS", wantEligible: false},
+		// HUBZone: not held
+		{"HUBZONE set-aside", "HUBZONE", false},
+		{"HUB set-aside", "HUB", false},
 
-		// SDB is NOT gated here — left for Scorer to weight to avoid starving the pipeline
-		{name: "SDB not gated (passes through)", setAsideCode: "SDB", wantEligible: true},
+		// VOSB: not held
+		{"VOSB set-aside", "VOSB", false},
 
-		// Case insensitivity and whitespace handling
-		{name: "lowercase 8a is ineligible", setAsideCode: "8a", wantEligible: false},
-		{name: "lowercase sba is eligible", setAsideCode: "sba", wantEligible: true},
-		{name: "whitespace trimmed before check", setAsideCode: "  SBA  ", wantEligible: true},
-		{name: "whitespace only treated as full-and-open", setAsideCode: "   ", wantEligible: true},
+		// Indian enterprise: not held
+		{"IEE set-aside", "IEE", false},
+		{"ISBEE set-aside", "ISBEE", false},
+
+		// Unrecognized code: conservative passthrough (eligible)
+		{"unrecognized code passes through", "XYZ_UNKNOWN_CODE", true},
+
+		// Legacy SAM.gov codes: backward compatibility
+		{"HZC (legacy HUBZone set-aside)", "HZC", false},
+		{"HZS (legacy HUBZone sole source)", "HZS", false},
+		{"SDVOSBS (legacy SDVOSB sole source)", "SDVOSBS", false},
+		{"WOSBSS (legacy WOSB sole source)", "WOSBSS", false},
+		{"EDWOSBSS (legacy EDWOSB sole source)", "EDWOSBSS", false},
 	}
 
 	for _, tt := range tests {
@@ -54,7 +66,7 @@ func TestIsEligible(t *testing.T) {
 				ID:           "test-opp",
 				SetAsideCode: tt.setAsideCode,
 			}
-			got := BlueMeta.IsEligible(opp)
+			got := p.IsEligible(opp)
 			if got != tt.wantEligible {
 				t.Errorf("IsEligible(%q) = %v, want %v", tt.setAsideCode, got, tt.wantEligible)
 			}
@@ -62,82 +74,154 @@ func TestIsEligible(t *testing.T) {
 	}
 }
 
-// TestIsEligible_FixtureOpportunities verifies eligibility against the three fixture opportunities
-// used in samgov cached-mode tests. This documents the expected gate outcome for each.
-//
-// Fixture set-asides:
-//   - a1b2c3d4e5f6: "SBA"  → eligible (small business)
-//   - f6e5d4c3b2a1: "8A"   → ineligible (8(a) program)
-//   - 9z8y7x6w5v4u: ""     → eligible (full-and-open)
-func TestIsEligible_FixtureOpportunities(t *testing.T) {
+// TestIsEligible_CaseNormalization verifies case-insensitive matching and whitespace trimming.
+func TestIsEligible_CaseNormalization(t *testing.T) {
+	p := &CapabilityProfile{}
+
 	tests := []struct {
 		name         string
-		noticeID     string
 		setAsideCode string
 		wantEligible bool
 	}{
-		{
-			name:         "SBA opportunity kept",
-			noticeID:     "a1b2c3d4e5f6",
-			setAsideCode: "SBA",
-			wantEligible: true,
-		},
-		{
-			name:         "8(a) opportunity dropped",
-			noticeID:     "f6e5d4c3b2a1",
-			setAsideCode: "8A",
-			wantEligible: false,
-		},
-		{
-			name:         "full-and-open opportunity kept",
-			noticeID:     "9z8y7x6w5v4u",
-			setAsideCode: "",
-			wantEligible: true,
-		},
+		{"lowercase 8a is ineligible", "8a", false},
+		{"mixed-case Sdvosb is ineligible", "Sdvosb", false},
+		{"lowercase wosb is ineligible", "wosb", false},
+		{"lowercase hubzone is ineligible", "hubzone", false},
+		{"lowercase sba is eligible", "sba", true},
+		{"mixed-case Sba is eligible", "Sba", true},
+		{"lowercase none is eligible", "none", true},
+		{"whitespace around SBA trimmed", "  SBA  ", true},
+		{"whitespace around 8A trimmed (ineligible)", "  8A  ", false},
+		{"whitespace-only treated as full-and-open", "   ", true},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			opp := &opportunity.Opportunity{
-				ID:           tt.noticeID,
+				ID:           "test-opp",
 				SetAsideCode: tt.setAsideCode,
 			}
-			got := BlueMeta.IsEligible(opp)
+			got := p.IsEligible(opp)
 			if got != tt.wantEligible {
-				t.Errorf("IsEligible for %s (set-aside %q) = %v, want %v",
-					tt.noticeID, tt.setAsideCode, got, tt.wantEligible)
+				t.Errorf("IsEligible(%q) = %v, want %v", tt.setAsideCode, got, tt.wantEligible)
 			}
 		})
 	}
 }
 
-// TestBlueMeta_NAICSCodes verifies the BlueMeta profile has the required NAICS codes.
-func TestBlueMeta_NAICSCodes(t *testing.T) {
-	if len(BlueMeta.NAICSCodes) == 0 {
-		t.Fatal("BlueMeta profile must define at least one NAICS code")
+// TestAllNAICSCodes verifies that AllNAICSCodes returns a flat slice of code strings
+// in order, regardless of tier.
+func TestAllNAICSCodes(t *testing.T) {
+	p := &CapabilityProfile{
+		NAICSCodes: []NAICSCode{
+			{Code: "541512", Tier: TierPrimary},
+			{Code: "518210", Tier: TierSecondary},
+			{Code: "541513", Tier: TierTertiary},
+		},
 	}
 
-	// Primary codes must always be present
-	required := []string{"541512", "541519"}
-	codeSet := make(map[string]bool, len(BlueMeta.NAICSCodes))
-	for _, code := range BlueMeta.NAICSCodes {
-		if code == "" {
-			t.Error("BlueMeta NAICSCodes must not contain empty strings")
+	codes := p.AllNAICSCodes()
+	if len(codes) != 3 {
+		t.Fatalf("AllNAICSCodes() returned %d codes, want 3", len(codes))
+	}
+	if codes[0] != "541512" {
+		t.Errorf("codes[0] = %q, want %q", codes[0], "541512")
+	}
+	if codes[1] != "518210" {
+		t.Errorf("codes[1] = %q, want %q", codes[1], "518210")
+	}
+	if codes[2] != "541513" {
+		t.Errorf("codes[2] = %q, want %q", codes[2], "541513")
+	}
+}
+
+// TestAllNAICSCodes_Empty verifies AllNAICSCodes returns an empty slice for empty profile.
+func TestAllNAICSCodes_Empty(t *testing.T) {
+	p := &CapabilityProfile{}
+	codes := p.AllNAICSCodes()
+	if len(codes) != 0 {
+		t.Errorf("AllNAICSCodes() on empty profile returned %d codes, want 0", len(codes))
+	}
+}
+
+// TestLoadProfile_JSONYAMLParity verifies that JSON and YAML fixtures with identical
+// content produce equivalent CapabilityProfile structs.
+func TestLoadProfile_JSONYAMLParity(t *testing.T) {
+	jsonPath := filepath.Join("testdata", "profile_test.json")
+	yamlPath := filepath.Join("testdata", "profile_test.yaml")
+
+	jsonProfile, err := LoadProfile(jsonPath)
+	if err != nil {
+		t.Fatalf("LoadProfile(%q) error: %v", jsonPath, err)
+	}
+
+	yamlProfile, err := LoadProfile(yamlPath)
+	if err != nil {
+		t.Fatalf("LoadProfile(%q) error: %v", yamlPath, err)
+	}
+
+	if jsonProfile.Company != yamlProfile.Company {
+		t.Errorf("Company: JSON=%q, YAML=%q", jsonProfile.Company, yamlProfile.Company)
+	}
+	if jsonProfile.UEI != yamlProfile.UEI {
+		t.Errorf("UEI: JSON=%q, YAML=%q", jsonProfile.UEI, yamlProfile.UEI)
+	}
+	if len(jsonProfile.NAICSCodes) != len(yamlProfile.NAICSCodes) {
+		t.Fatalf("NAICSCodes length: JSON=%d, YAML=%d", len(jsonProfile.NAICSCodes), len(yamlProfile.NAICSCodes))
+	}
+	for i := range jsonProfile.NAICSCodes {
+		jc := jsonProfile.NAICSCodes[i]
+		yc := yamlProfile.NAICSCodes[i]
+		if jc.Code != yc.Code {
+			t.Errorf("NAICSCodes[%d].Code: JSON=%q, YAML=%q", i, jc.Code, yc.Code)
 		}
-		codeSet[code] = true
+		if jc.Tier != yc.Tier {
+			t.Errorf("NAICSCodes[%d].Tier: JSON=%q, YAML=%q", i, jc.Tier, yc.Tier)
+		}
+	}
+	if len(jsonProfile.PastPerformance) != len(yamlProfile.PastPerformance) {
+		t.Errorf("PastPerformance length: JSON=%d, YAML=%d",
+			len(jsonProfile.PastPerformance), len(yamlProfile.PastPerformance))
+	}
+	if jsonProfile.SetAside.SmallBusiness != yamlProfile.SetAside.SmallBusiness {
+		t.Errorf("SetAside.SmallBusiness: JSON=%v, YAML=%v",
+			jsonProfile.SetAside.SmallBusiness, yamlProfile.SetAside.SmallBusiness)
+	}
+}
+
+// TestLoadProfile_RealProfile verifies the production BlueMeta profile loads correctly
+// with 9 NAICS codes and 5 past-performance entries.
+func TestLoadProfile_RealProfile(t *testing.T) {
+	profilePath := filepath.Join("..", "..", "config", "profile.json")
+
+	p, err := LoadProfile(profilePath)
+	if err != nil {
+		t.Fatalf("LoadProfile(%q) error: %v", profilePath, err)
 	}
 
-	for _, code := range required {
-		if !codeSet[code] {
-			t.Errorf("BlueMeta profile is missing required NAICS code %q", code)
+	if len(p.NAICSCodes) != 9 {
+		t.Errorf("Expected 9 NAICS codes in production profile, got %d", len(p.NAICSCodes))
+	}
+	if len(p.PastPerformance) != 5 {
+		t.Errorf("Expected 5 past-performance entries in production profile, got %d", len(p.PastPerformance))
+	}
+
+	// AllNAICSCodes must return same count as NAICSCodes
+	codes := p.AllNAICSCodes()
+	if len(codes) != len(p.NAICSCodes) {
+		t.Errorf("AllNAICSCodes() returned %d codes, want %d", len(codes), len(p.NAICSCodes))
+	}
+	for _, code := range codes {
+		if code == "" {
+			t.Error("AllNAICSCodes() returned an empty-string code")
 		}
 	}
 }
 
-// TestBlueMeta_IneligibleSetAsidesNotEmpty verifies the BlueMeta profile has
-// ineligible set-asides defined.
-func TestBlueMeta_IneligibleSetAsidesNotEmpty(t *testing.T) {
-	if len(BlueMeta.IneligibleSetAsides) == 0 {
-		t.Error("BlueMeta profile must define ineligible set-aside codes")
+// TestLoadProfile_UnsupportedExtension verifies LoadProfile rejects unknown file extensions.
+func TestLoadProfile_UnsupportedExtension(t *testing.T) {
+	_, err := LoadProfile("profile.toml")
+	if err == nil {
+		t.Error("Expected error for unsupported extension, got nil")
 	}
 }
