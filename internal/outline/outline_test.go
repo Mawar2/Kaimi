@@ -135,15 +135,17 @@ func TestBuildSections_SetAside(t *testing.T) {
 }
 
 // TestBuildSections_NoSetAside verifies the subcontracting plan is omitted when
-// there is no set-aside.
+// there is no set-aside, including case-insensitive "none" variants from external systems.
 func TestBuildSections_NoSetAside(t *testing.T) {
-	opp := baseOpportunity()
-	opp.SetAsideCode = ""
+	for _, code := range []string{"", "NONE", "none", "None"} {
+		opp := baseOpportunity()
+		opp.SetAsideCode = code
 
-	sections := buildSections(opp)
+		sections := buildSections(opp)
 
-	if contains(sectionIDs(sections), "small_business_subcontracting") {
-		t.Error("unexpected small_business_subcontracting section with no set-aside")
+		if contains(sectionIDs(sections), "small_business_subcontracting") {
+			t.Errorf("unexpected small_business_subcontracting section for SetAsideCode=%q", code)
+		}
 	}
 }
 

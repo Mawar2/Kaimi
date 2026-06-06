@@ -116,8 +116,9 @@ var (
 	spacingRE = regexp.MustCompile(`(?i)(single|double|1\.5)\s*-?\s*spaced`)
 
 	// file format: "submitted as PDF", "in PDF format", "Microsoft Word", ".doc", ".docx"
-	// .docx? uses a separate group without a leading \b because . is not a word char.
-	fileFormatRE = regexp.MustCompile(`(?i)\b(pdf|microsoft word)\b|(\.docx?)\b`)
+	// .docx? requires a non-word preceding char (space, start, punctuation) so it does
+	// not false-positive on filenames like "proposal.docx".
+	fileFormatRE = regexp.MustCompile(`(?i)\b(pdf|microsoft word)\b|(?:^|[\s(,])(\.docx?)\b`)
 
 	// government forms: "SF-330", "SF 1449", "DD Form 254", "DD-1423"
 	formRE = regexp.MustCompile(`(?i)\b(SF|DD(?:\s+Form)?)\s*-?\s*(\d+)\b`)
@@ -237,7 +238,7 @@ func buildSections(opp *opportunity.Opportunity) []Section {
 	}
 
 	// Set-aside programs require a small business subcontracting plan.
-	if opp.SetAsideCode != "" && opp.SetAsideCode != "NONE" {
+	if opp.SetAsideCode != "" && !strings.EqualFold(opp.SetAsideCode, "NONE") {
 		sections = append(sections, Section{
 			ID:        "small_business_subcontracting",
 			Title:     "Small Business Subcontracting Plan",
