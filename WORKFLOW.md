@@ -70,6 +70,9 @@ A feature is complete only when ALL of the following are true:
 3. **The linter passes** with no errors.
 4. An AI **sub-agent code-review team** has reviewed the change (see below).
 5. The change is on a pull request that references the ticket.
+6. **Automated AI review** has run in CI and any auto-fixable issues have been addressed
+   (either by the auto-fix bot or manually). Complex issues flagged by AI review must be
+   considered and either fixed or documented as acceptable.
 
 ---
 
@@ -133,7 +136,11 @@ For every ticket:
 4. Run all tests + linter locally until green.
 5. Spin up the AI sub-agent review team; address its report.
 6. **Open a PR referencing the ticket** - IMPORTANT: Only create the PR when your code is ready for human review. Work on your branch as long as you need, but don't open the PR until you're confident it's complete. Every push to an open PR triggers an AI review (~$0.01/review), so opening early and pushing many commits adds unnecessary cost. Use draft PRs if you need early feedback.
-7. CI runs all gates (tests, linter, AI review).
+7. CI runs all gates (tests, linter, AI review, auto-fix):
+   - AI review identifies issues and marks simple ones as auto-fixable
+   - Auto-fix bot automatically fixes simple issues and pushes a commit (if any found)
+   - Review the auto-fix commit to ensure fixes are correct
+   - Address any remaining non-auto-fixable issues manually
 8. A **human** reviews and merges if everything passes.
 9. Commit message follows `<ticket_number>_<feature_completed>`.
 
