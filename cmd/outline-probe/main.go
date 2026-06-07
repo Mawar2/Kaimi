@@ -35,37 +35,46 @@ import (
 // htmlTagRE strips HTML tags from SAM.gov description pointer responses.
 var htmlTagRE = regexp.MustCompile(`<[^>]+>`)
 
-// pdfToText is the path to the Poppler pdftotext binary.
-const pdfToText = `C:\Program Files\Git\mingw64\bin\pdftotext.exe`
+// pdfToText is the name of the Poppler pdftotext binary, resolved via $PATH so
+// the tool works across developer machines and CI runners rather than assuming
+// a single OS-specific install location.
+const pdfToText = "pdftotext"
 
 func main() {
+	if err := run(); err != nil {
+		fmt.Fprintf(os.Stderr, "outline-probe: %v\n", err)
+		os.Exit(1)
+	}
+}
+
+// run parses flags and dispatches to PDF-file mode or SAM.gov (cached/live) mode.
+func run() error {
 	mode := flag.String("mode", "cached", "Mode: cached or live")
 	limit := flag.Int("limit", 3, "Max number of opportunities to process")
 	pdfFile := flag.String("pdf-file", "", "Path to a PDF file to parse directly (bypasses SAM.gov fetch)")
 	flag.Parse()
 
-	if err := run(*mode, *limit, *pdfFile); err != nil {
-		fmt.Fprintf(os.Stderr, "error: %v\n", err)
-		os.Exit(1)
+	ctx := context.Background()
+
+	if *pdfFile != "" {
+		return runPDFMode(ctx, *pdfFile)
 	}
+	return runSAMMode(ctx, *mode, *limit)
 }
 
-func run(mode string, limit int, pdfFile string) error {
+// runSAMMode fetches opportunities from SAM.gov (cached or live), resolves the
+// best available description text for each in live mode, and runs the outline
+// agent over the result.
+func runSAMMode(ctx context.Context, mode string, limit int) error {
 	apiKey := os.Getenv("SAM_API_KEY")
 	if mode == "live" && apiKey == "" {
 		return fmt.Errorf("SAM_API_KEY environment variable required for live mode")
 	}
 
 	prof := profile.BlueMeta
-
 	fmt.Printf("Capability profile: BlueMeta Technologies\n")
 	fmt.Printf("NAICS codes: %s\n", strings.Join(prof.NAICSCodes, ", "))
 	fmt.Println(strings.Repeat("=", 60))
-
-	// --pdf-file mode: extract text from a local PDF and run the outline agent directly.
-	if pdfFile != "" {
-		return runPDFFile(pdfFile)
-	}
 
 	client, err := samgov.NewClient(samgov.Config{
 		APIKey:    apiKey,
@@ -75,7 +84,6 @@ func run(mode string, limit int, pdfFile string) error {
 		return fmt.Errorf("create SAM.gov client: %w", err)
 	}
 
-	ctx := context.Background()
 	opps, err := client.FetchByNAICS(ctx, prof.NAICSCodes)
 	if err != nil {
 		return fmt.Errorf("fetch opportunities: %w", err)
@@ -92,22 +100,23 @@ func run(mode string, limit int, pdfFile string) error {
 
 	fmt.Printf("Processing %d opportunity/ies (mode=%s)\n\n", len(opps), mode)
 
-	a := outline.New()
 	tmpDir, err := os.MkdirTemp("", "outline-probe-*")
 	if err != nil {
 		return fmt.Errorf("create temp dir: %w", err)
 	}
 	defer func() { _ = os.RemoveAll(tmpDir) }()
 
-	for _, opp := range opps {
-		processOpportunity(ctx, a, opp, apiKey, mode, tmpDir)
+	if mode == "live" {
+		for _, opp := range opps {
+			resolveDescription(opp, apiKey, tmpDir)
+		}
 	}
 
-	return nil
+	return processOpportunities(ctx, opps)
 }
 
-// runPDFFile extracts text from a local PDF and runs the outline agent on it.
-func runPDFFile(pdfPath string) error {
+// runPDFMode extracts text from a local PDF file and runs the outline agent on it.
+func runPDFMode(ctx context.Context, pdfPath string) error {
 	fmt.Printf("PDF file: %s\n\n", pdfPath)
 
 	tmpDir, err := os.MkdirTemp("", "outline-probe-pdf-*")
@@ -129,25 +138,17 @@ func runPDFFile(pdfPath string) error {
 		Description: text,
 	}
 
-	ctx := context.Background()
-	ol, result, err := outline.New().Run(ctx, opp)
-	if err != nil {
-		return fmt.Errorf("outline agent: %w", err)
-	}
-	printOutline(opp, ol, string(result.Status))
-	return nil
+	return processOpportunities(ctx, []*opportunity.Opportunity{opp})
 }
 
-// processOpportunity resolves the best available description text for an opportunity
-// (PDF attachment → inline description → pointer URL), runs the outline agent, and prints results.
-func processOpportunity(ctx context.Context, a *outline.Agent, opp *opportunity.Opportunity, apiKey, mode, tmpDir string) {
-	fmt.Printf("Opportunity: %s\n", opp.Title)
-	fmt.Printf("ID:          %s\n", opp.ID)
-
+// resolveDescription fills in the best available description text for an
+// opportunity fetched in live mode, in priority order: PDF attachment →
+// inline description → SAM.gov description pointer URL.
+func resolveDescription(opp *opportunity.Opportunity, apiKey, tmpDir string) {
 	// Priority 1: download the first PDF attachment and extract its text.
-	if mode == "live" && len(opp.Attachments) > 0 {
+	if len(opp.Attachments) > 0 {
 		for i, attURL := range opp.Attachments {
-			fmt.Printf("Fetching attachment %d/%d...\n", i+1, len(opp.Attachments))
+			fmt.Printf("Fetching attachment %d/%d for %s...\n", i+1, len(opp.Attachments), opp.Title)
 			text, err := downloadAndExtractPDF(attURL, tmpDir)
 			if err != nil {
 				fmt.Printf("  Warning: %v\n", err)
@@ -155,28 +156,21 @@ func processOpportunity(ctx context.Context, a *outline.Agent, opp *opportunity.
 			}
 			fmt.Printf("  Extracted %d chars of PDF text.\n", len(text))
 			opp.Description = text
-			break
+			return
 		}
 	}
 
 	// Priority 2: follow a SAM.gov description pointer URL.
-	if mode == "live" && strings.HasPrefix(opp.Description, "https://api.sam.gov") {
-		fmt.Printf("Fetching full description from pointer URL...\n")
+	if strings.HasPrefix(opp.Description, "https://api.sam.gov") {
+		fmt.Printf("Fetching full description from pointer URL for %s...\n", opp.Title)
 		fullDesc, err := fetchDescription(opp.Description, apiKey)
 		if err != nil {
 			fmt.Printf("  Warning: could not fetch description: %v\n", err)
-		} else {
-			opp.Description = fullDesc
-			fmt.Printf("  Got %d chars of description text.\n", len(fullDesc))
+			return
 		}
+		opp.Description = fullDesc
+		fmt.Printf("  Got %d chars of description text.\n", len(fullDesc))
 	}
-
-	ol, result, err := a.Run(ctx, opp)
-	if err != nil {
-		fmt.Printf("[FAIL] %v\n\n", err)
-		return
-	}
-	printOutline(opp, ol, string(result.Status))
 }
 
 // downloadAndExtractPDF downloads a URL, saves it as a PDF, and returns extracted plain text.
@@ -270,42 +264,99 @@ func fetchDescription(url, apiKey string) (string, error) {
 	return strings.Join(strings.Fields(text), " "), nil
 }
 
-func printOutline(opp *opportunity.Opportunity, ol *outline.Outline, status string) {
-	fmt.Printf("Agency:      %s\n", opp.Agency)
-	fmt.Printf("Status:      %s\n", status)
-	fmt.Printf("Sections:    %d\n", len(ol.Sections))
-	for _, s := range ol.Sections {
-		fmt.Printf("  - [%s] %s\n", s.ID, s.Title)
-		fmt.Printf("      Rationale: %s\n", s.Rationale)
+// processOpportunities runs the outline agent against each opportunity in turn
+// and prints the resulting sections, formatting rules, and a description excerpt.
+func processOpportunities(ctx context.Context, opps []*opportunity.Opportunity) error {
+	ag := outline.New()
+
+	for i, opp := range opps {
+		printDivider()
+		fmt.Printf("[%d/%d] %s\n", i+1, len(opps), opp.Title)
+		fmt.Printf("  ID:        %s\n", opp.ID)
+		fmt.Printf("  Agency:    %s\n", opp.Agency)
+		if opp.SetAsideCode != "" {
+			fmt.Printf("  Set-aside: %s\n", opp.SetAsideCode)
+		} else {
+			fmt.Printf("  Set-aside: (none — full and open)\n")
+		}
+		fmt.Println()
+
+		ol, result, err := ag.Run(ctx, opp)
+		if err != nil {
+			fmt.Printf("  ERROR: %v\n\n", err)
+			continue
+		}
+		if result.IsFailed() {
+			fmt.Printf("  FAILED: %s\n\n", result.Summary)
+			continue
+		}
+
+		printSections(ol.Sections)
+		printFormattingRules(ol.FormattingRules)
+		printDescriptionExcerpt(opp.Description)
 	}
 
-	fmt.Println("\nFormatting Rules:")
-	fr := ol.FormattingRules
-	printRule("  Page limit  ", fr.PageLimit)
-	printRule("  Font        ", fr.Font)
-	printRule("  Margins     ", fr.Margins)
-	printRule("  Line spacing", fr.LineSpacing)
-	printRule("  File format ", fr.FileFormat)
-	if len(fr.RequiredForms) > 0 {
-		fmt.Printf("  Forms       : %s\n", strings.Join(fr.RequiredForms, ", "))
-	} else {
-		fmt.Println("  Forms       : not specified")
-	}
+	printDivider()
+	fmt.Printf("Done. %d opportunit%s processed.\n", len(opps), pluralSuffix(len(opps)))
+	return nil
+}
 
-	fmt.Println("\nDescription excerpt (first 500 chars):")
-	desc := opp.Description
-	if len(desc) > 500 {
-		desc = desc[:500] + "..."
+// printSections writes the derived section list to stdout.
+func printSections(sections []outline.Section) {
+	fmt.Printf("  Sections (%d):\n", len(sections))
+	for _, s := range sections {
+		fmt.Printf("    • [%s] %s\n", s.ID, s.Title)
+		fmt.Printf("        Rationale: %s\n", s.Rationale)
 	}
-	fmt.Printf("  %s\n", desc)
-	fmt.Println(strings.Repeat("-", 60))
 	fmt.Println()
 }
 
-func printRule(label string, r *outline.FormattingRule) {
-	if r.Specified {
-		fmt.Printf("%s: %s\n", label, r.Value)
+// printFormattingRules writes the extracted formatting requirements to stdout.
+func printFormattingRules(rules *outline.FormattingRules) {
+	fmt.Println("  Formatting rules:")
+	printRule("Page limit", rules.PageLimit)
+	printRule("Font", rules.Font)
+	printRule("Margins", rules.Margins)
+	printRule("Line spacing", rules.LineSpacing)
+	printRule("File format", rules.FileFormat)
+
+	if len(rules.RequiredForms) > 0 {
+		fmt.Printf("    %-16s %s\n", "Required forms:", strings.Join(rules.RequiredForms, ", "))
 	} else {
-		fmt.Printf("%s: not specified\n", label)
+		fmt.Printf("    %-16s (none specified)\n", "Required forms:")
 	}
+	fmt.Println()
+}
+
+// printRule prints a single formatting rule, noting when it is unspecified.
+func printRule(label string, rule *outline.FormattingRule) {
+	key := label + ":"
+	if rule.Specified {
+		fmt.Printf("    %-16s %s\n", key, rule.Value)
+	} else {
+		fmt.Printf("    %-16s (not specified)\n", key)
+	}
+}
+
+// printDescriptionExcerpt writes the first 500 characters of the resolved
+// description text, so the developer can see what text the agent worked from.
+func printDescriptionExcerpt(desc string) {
+	fmt.Println("  Description excerpt (first 500 chars):")
+	if len(desc) > 500 {
+		desc = desc[:500] + "..."
+	}
+	fmt.Printf("    %s\n\n", desc)
+}
+
+// printDivider prints a visual separator between opportunity blocks.
+func printDivider() {
+	fmt.Println(strings.Repeat("─", 60))
+}
+
+// pluralSuffix returns "y" for count==1 and "ies" otherwise, for the word "opportunit".
+func pluralSuffix(count int) string {
+	if count == 1 {
+		return "y"
+	}
+	return "ies"
 }
