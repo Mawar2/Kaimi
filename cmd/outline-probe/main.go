@@ -25,6 +25,7 @@ import (
 	"path/filepath"
 	"regexp"
 	"strings"
+	"time"
 
 	"github.com/Mawar2/Kaimi/internal/opportunity"
 	"github.com/Mawar2/Kaimi/internal/outline"
@@ -291,6 +292,7 @@ func processOpportunities(ctx context.Context, opps []*opportunity.Opportunity) 
 			continue
 		}
 
+		fmt.Printf("  Generated: %s\n\n", ol.GeneratedAt.Format(time.RFC3339))
 		printSections(ol.Sections)
 		printFormattingRules(ol.FormattingRules)
 		printDescriptionExcerpt(opp.Description)
