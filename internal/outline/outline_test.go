@@ -530,7 +530,7 @@ func TestToDocSections_RendersFormattingRules(t *testing.T) {
 	}
 
 	cases := []struct {
-		name      string
+		name       string
 		wantInBody string
 	}{
 		{"specified page limit", "25 pages"},

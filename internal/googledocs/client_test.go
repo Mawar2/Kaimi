@@ -50,6 +50,39 @@ func TestNewClient_LiveModeNoCredentials(t *testing.T) {
 	}
 }
 
+// TestNewClient_ADCMode_NoSharedDrive verifies that ADC mode still requires a
+// SharedDriveID — ADC only changes how credentials are resolved, not other validation.
+func TestNewClient_ADCMode_NoSharedDrive(t *testing.T) {
+	cfg := Config{
+		UseADC: true,
+	}
+
+	_, err := NewClient(context.Background(), cfg)
+	if err == nil {
+		t.Fatal("Expected error when creating ADC client without a SharedDriveID")
+	}
+}
+
+// TestNewClient_ADCMode_NoCredentialsRequired verifies that ADC mode does not
+// require CredentialsJSON — credential resolution is deferred to the Google
+// client libraries (env var, gcloud, metadata server).
+func TestNewClient_ADCMode_NoCredentialsRequired(t *testing.T) {
+	cfg := Config{
+		UseADC:        true,
+		SharedDriveID: "any-drive-id",
+	}
+
+	// NewClient should succeed — ADC credential resolution happens on the first
+	// API call, not at construction time.
+	client, err := NewClient(context.Background(), cfg)
+	if err != nil {
+		t.Fatalf("NewClient() with UseADC=true returned unexpected error: %v", err)
+	}
+	if client == nil {
+		t.Error("Expected non-nil client")
+	}
+}
+
 // TestNewClient_LiveModeNoSharedDrive verifies that creating a live client without
 // a configured Shared Drive ID fails with a clear error.
 func TestNewClient_LiveModeNoSharedDrive(t *testing.T) {

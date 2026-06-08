@@ -1,8 +1,11 @@
 // Package googledocs creates and populates Google Docs inside a Shared Drive.
 //
-// The client supports two modes:
-//   - Live mode: makes real Drive and Docs API calls to create and populate a Doc
-//   - Cached mode: returns deterministic fixture data for fast, deterministic testing
+// The client supports three modes:
+//   - Live mode (service account): authenticates with a JSON key; use for
+//     production and CI where explicit key management is required.
+//   - Live mode (ADC): authenticates via Application Default Credentials; use
+//     for local development and GCP-hosted environments (Cloud Run, GKE, etc.).
+//   - Cached mode: returns deterministic fixture data for fast, offline testing.
 //
 // Docs are created inside a Shared Drive (rather than a personal Drive) so that
 // Docs produced by the service account are owned and visible the way the rest of
@@ -58,26 +61,36 @@ type CreatedDoc struct {
 // Config holds configuration for the Google Docs client.
 type Config struct {
 	// CredentialsJSON is the raw service-account JSON key content.
-	// Required for live mode.
+	// Required for live mode unless UseADC is true.
 	CredentialsJSON []byte
 
-	// SharedDriveID is the ID of the Shared Drive that Docs are created in.
-	// Required for live mode.
+	// SharedDriveID is the ID of the Shared Drive (or folder) that Docs are
+	// created in. Required for live mode.
 	SharedDriveID string
 
 	// UseCached indicates whether to use deterministic fixture data instead of
 	// making real Drive/Docs API calls.
 	UseCached bool
+
+	// UseADC instructs the client to authenticate via Application Default
+	// Credentials instead of a service-account JSON key. When true,
+	// CredentialsJSON is ignored. ADC resolves credentials in order:
+	// GOOGLE_APPLICATION_CREDENTIALS env var → gcloud user credentials
+	// (gcloud auth application-default login) → GCE/GKE metadata server.
+	// Prefer ADC in GCP-hosted environments; use CredentialsJSON only when
+	// explicit key management is required.
+	UseADC bool
 }
 
 // NewClient creates a new Google Docs client based on the provided configuration.
 //
 // If config.UseCached is true, returns a client that returns deterministic fixture
-// data with no network calls. Otherwise, returns a client that creates and
-// populates real Docs via the Drive and Docs APIs.
+// data with no network calls. Otherwise, returns a live client that creates and
+// populates real Docs via the Drive and Docs APIs, authenticating with either a
+// service-account JSON key (CredentialsJSON) or Application Default Credentials
+// (UseADC).
 //
-// NewClient takes a context (unlike samgov.NewClient) because building the live
-// Drive and Docs services via option.WithCredentialsJSON requires one.
+// NewClient takes a context because building live Drive/Docs services requires one.
 func NewClient(ctx context.Context, cfg Config) (Client, error) {
 	if cfg.UseCached {
 		return newCachedClient()
@@ -166,22 +179,29 @@ type liveClient struct {
 }
 
 // newLiveClient creates a client that creates and populates real Docs via the
-// Drive and Docs APIs, authenticating with the configured service-account
-// credentials.
+// Drive and Docs APIs. It authenticates with a service-account JSON key
+// (cfg.CredentialsJSON) or Application Default Credentials (cfg.UseADC).
 func newLiveClient(ctx context.Context, cfg Config) (*liveClient, error) {
-	if len(cfg.CredentialsJSON) == 0 {
-		return nil, fmt.Errorf("credentials are required for live mode")
-	}
 	if cfg.SharedDriveID == "" {
-		return nil, fmt.Errorf("Shared Drive ID is required for live mode")
+		return nil, fmt.Errorf("shared drive ID is required for live mode")
 	}
 
-	driveSvc, err := drive.NewService(ctx, option.WithCredentialsJSON(cfg.CredentialsJSON))
+	var opts []option.ClientOption
+	if !cfg.UseADC {
+		if len(cfg.CredentialsJSON) == 0 {
+			return nil, fmt.Errorf("credentials are required for live mode (set CredentialsJSON or enable UseADC)")
+		}
+		opts = append(opts, option.WithCredentialsJSON(cfg.CredentialsJSON)) //nolint:staticcheck // TODO(phase-1): migrate to option.WithCredentials
+	}
+	// When UseADC is true no credential option is added — the Google client
+	// libraries resolve ADC automatically (env var → gcloud → metadata server).
+
+	driveSvc, err := drive.NewService(ctx, opts...)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create Drive service: %w", err)
 	}
 
-	docsSvc, err := docs.NewService(ctx, option.WithCredentialsJSON(cfg.CredentialsJSON))
+	docsSvc, err := docs.NewService(ctx, opts...)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create Docs service: %w", err)
 	}
