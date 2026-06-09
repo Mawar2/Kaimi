@@ -7,14 +7,22 @@
 //     the skeleton agents, against fixtures. Fast and deterministic.
 //   - Live (run separately): real SAM.gov + real Gemini, gated behind KAIMI_E2E.
 //
-// Run the contract layer with `go test ./internal/e2e`. Run the live layer with
-// `KAIMI_E2E=1 SAM_API_KEY=... GCP_PROJECT_ID=... go test -run E2E_Live ./internal/e2e`.
+// Run the contract layer with `go test ./internal/e2e`. Run the live layer with:
+//
+//	KAIMI_E2E=1 SAM_API_KEY=<key> GCP_PROJECT_ID=<project> \
+//	  go test ./internal/e2e -run TestE2E_Live -v -timeout 10m
+//
+// Optional live-layer env: GCP_REGION (default us-east4) and GEMINI_MODEL
+// (default gemini-2.5-pro). The live layer also requires GCP Application Default
+// Credentials (`gcloud auth application-default login`) for Vertex AI.
 package e2e
 
 import (
 	"context"
 	"errors"
+	"fmt"
 	"os"
+	"strings"
 	"testing"
 	"time"
 
@@ -26,6 +34,7 @@ import (
 	"github.com/Mawar2/Kaimi/internal/outline"
 	"github.com/Mawar2/Kaimi/internal/pipeline"
 	"github.com/Mawar2/Kaimi/internal/profile"
+	"github.com/Mawar2/Kaimi/internal/samgov"
 	"github.com/Mawar2/Kaimi/internal/scorer"
 	"github.com/Mawar2/Kaimi/internal/store"
 	"github.com/Mawar2/Kaimi/internal/writer"
@@ -157,10 +166,188 @@ func TestE2E_Contract_FullChain(t *testing.T) {
 	}
 }
 
+// liveFetchCap bounds how many live opportunities one TestE2E_Live run feeds
+// into scoring. SAM.gov can return a month of results for a popular NAICS code;
+// scoring them all would blow the test deadline and burn Gemini quota without
+// proving anything the first few don't already prove.
+const liveFetchCap = 5
+
+// cappedSam wraps a live samgov.Client and truncates FetchByNAICS results to a
+// fixed cap. It exists only so the live E2E run stays fast and cheap — the real
+// client still performs the full live fetch underneath.
+type cappedSam struct {
+	inner samgov.Client
+	max   int
+}
+
+func (c *cappedSam) FetchByNAICS(ctx context.Context, naicsCodes []string) ([]*opportunity.Opportunity, error) {
+	opps, err := c.inner.FetchByNAICS(ctx, naicsCodes)
+	if err != nil {
+		return nil, fmt.Errorf("capped live fetch: %w", err)
+	}
+	if len(opps) > c.max {
+		opps = opps[:c.max]
+	}
+	return opps, nil
+}
+
+func (c *cappedSam) FetchByID(ctx context.Context, noticeID string) (*opportunity.Opportunity, error) {
+	return c.inner.FetchByID(ctx, noticeID)
+}
+
+// TestE2E_Live runs the full chain against the real SAM.gov API and real Gemini
+// via Vertex AI: live fetch -> Hunter eligibility gate -> Gemini scoring ->
+// store persistence -> Manager Zone-2 chain (Outline -> Writer -> Final Review).
+//
+// Gated behind KAIMI_E2E=1 so it never runs on the fast unit path. Requires
+// SAM_API_KEY, GCP_PROJECT_ID, and GCP Application Default Credentials
+// (gcloud auth application-default login). GCP_REGION defaults to us-east4 and
+// GEMINI_MODEL defaults to gemini-2.5-pro. See the package comment for the
+// exact command line.
+//
+// Per WORKFLOW.md, assertions check structure and behavior — a validly scored,
+// drafted, and reviewed Opportunity — never exact LLM output strings. Live data
+// is whatever SAM.gov has today, so "no eligible opportunities" is a skip, not
+// a failure.
 func TestE2E_Live(t *testing.T) {
 	if os.Getenv("KAIMI_E2E") == "" {
-		t.Skip("set KAIMI_E2E=1 (with SAM_API_KEY + GCP creds) to run the live full-chain E2E")
+		t.Skip("set KAIMI_E2E=1 (with SAM_API_KEY + GCP_PROJECT_ID + GCP credentials) to run the live full-chain E2E")
 	}
-	// TODO(KAI-10): wire live samgov + GeminiScorer + writer.NewWithGenerator(gemini)
-	// and assert structure/behavior (valid scored + drafted + reviewed Opportunity).
+
+	// KAIMI_E2E=1 is an explicit opt-in, so missing required credentials is a
+	// loud misconfiguration failure rather than a silent skip.
+	samKey := os.Getenv("SAM_API_KEY")
+	if samKey == "" {
+		t.Fatal("SAM_API_KEY is required when KAIMI_E2E=1")
+	}
+	project := os.Getenv("GCP_PROJECT_ID")
+	if project == "" {
+		t.Fatal("GCP_PROJECT_ID is required when KAIMI_E2E=1")
+	}
+	region := os.Getenv("GCP_REGION")
+	if region == "" {
+		region = "us-east4" // Kaimi's home region
+	}
+	model := os.Getenv("GEMINI_MODEL")
+	if model == "" {
+		model = "gemini-2.5-pro"
+	}
+
+	// One overall deadline for the whole chain: a live SAM.gov fetch plus several
+	// Gemini calls legitimately takes minutes, but a hang should fail the test
+	// rather than stall the run indefinitely.
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
+	defer cancel()
+
+	sam, err := samgov.NewClient(samgov.Config{APIKey: samKey})
+	if err != nil {
+		t.Fatalf("samgov.NewClient (live): %v", err)
+	}
+
+	gemini, err := scorer.NewGeminiScorer(ctx, project, region, model)
+	if err != nil {
+		t.Fatalf("scorer.NewGeminiScorer: %v", err)
+	}
+
+	st, err := store.NewJSONStore(t.TempDir())
+	if err != nil {
+		t.Fatalf("store.NewJSONStore: %v", err)
+	}
+
+	// Zone 1: live SAM.gov fetch -> eligibility gate -> Gemini scoring -> Store.
+	// The eligibility profile's NAICS list (541512) drives the fetch, same as the
+	// contract layer, and cappedSam keeps the scored batch small.
+	report, err := pipeline.RunZone1(ctx, &pipeline.Zone1Deps{
+		Sam:         &cappedSam{inner: sam, max: liveFetchCap},
+		Scorer:      gemini,
+		Store:       st,
+		Profile:     scoringProfile(),
+		Eligibility: eligibilityProfile(),
+	})
+	if err != nil {
+		t.Fatalf("run zone 1 (live) failed: %v", err)
+	}
+	t.Logf("zone 1: fetched=%d eligible=%d dropped=%d scored=%d failed=%d",
+		report.Fetched, report.Eligible, report.Dropped, report.Scored, report.Failed)
+
+	// An empty live result set is a fact about the world, not a code failure.
+	if report.Eligible == 0 {
+		t.Skip("no eligible opportunities live today")
+	}
+	// But eligible opportunities that ALL failed to score means the scoring or
+	// persistence path is broken — that is a real failure.
+	if report.Scored == 0 {
+		t.Fatalf("eligible opportunities found but none scored; errors: %v", report.Errors)
+	}
+	if len(report.SavedIDs) != report.Scored {
+		t.Fatalf("scored %d opportunities but persisted %d IDs", report.Scored, len(report.SavedIDs))
+	}
+
+	// Structural validity of what Zone 1 persisted: a real score in range, with
+	// reasoning and a scored-at timestamp — never an assertion on the LLM's words.
+	scored, err := st.Get(ctx, report.SavedIDs[0])
+	if err != nil {
+		t.Fatalf("get scored opportunity %s from store: %v", report.SavedIDs[0], err)
+	}
+	if scored.Score < 0 || scored.Score > 1 {
+		t.Errorf("scored.Score = %v, want in [0, 1]", scored.Score)
+	}
+	if strings.TrimSpace(scored.ScoreReasoning) == "" {
+		t.Error("scored opportunity is missing ScoreReasoning")
+	}
+	if scored.Recommendation == "" {
+		t.Error("scored opportunity is missing a Recommendation")
+	}
+	if scored.ScoredAt == nil {
+		t.Error("scored opportunity is missing ScoredAt")
+	}
+
+	// Zone 2: Manager threads the first scored opportunity through
+	// Outline -> Writer (live Gemini) -> Final Review.
+	//
+	// The Docs client stays cached: live Docs needs GOOGLE_DRIVE_SHARED_DRIVE_ID
+	// plus Drive write credentials, which is more auth than this test's required
+	// env (SAM_API_KEY + GCP_PROJECT_ID + ADC for Vertex AI) provides. Live Doc
+	// creation has its own dedicated test (internal/outline, -tags=live).
+	docsClient, err := googledocs.NewClient(ctx, googledocs.Config{UseCached: true})
+	if err != nil {
+		t.Fatalf("googledocs.NewClient (cached): %v", err)
+	}
+
+	gen, err := writer.NewGeminiGenerator(ctx, project, region, model)
+	if err != nil {
+		t.Fatalf("writer.NewGeminiGenerator: %v", err)
+	}
+
+	m := manager.New(outline.New(docsClient), writer.NewWithGenerator(gen), finalreview.New(), st)
+
+	out, runErr := m.Run(ctx, scored, scoringProfile())
+	if out == nil {
+		t.Fatalf("manager run returned no outcome: %v", runErr)
+	}
+	t.Logf("zone 2: stage=%s status=%s err=%v draftLen=%d", out.Stage, out.Status, runErr, len(out.Draft))
+
+	// Behavior, not strings: the chain must land on a terminal status. failed and
+	// needs_human are legitimate live outcomes (e.g. Final Review flags a passed
+	// deadline on a real solicitation), so they are reported, not failed.
+	switch out.Status {
+	case agent.StatusReadyToSubmit:
+		if strings.TrimSpace(out.Draft) == "" {
+			t.Error("ready_to_submit outcome must include a non-empty draft")
+		}
+	case agent.StatusFailed, agent.StatusNeedsHuman:
+		t.Logf("chain halted at stage %q with status %q — a legitimate live outcome", out.Stage, out.Status)
+	default:
+		t.Errorf("manager status = %q, want a terminal status (ready_to_submit, failed, or needs_human)", out.Status)
+	}
+
+	// The Manager must have persisted progress: ProposalStatus records the last
+	// stage outcome on the stored Opportunity.
+	persisted, err := st.Get(ctx, scored.ID)
+	if err != nil {
+		t.Fatalf("get persisted opportunity %s from store: %v", scored.ID, err)
+	}
+	if persisted.ProposalStatus == "" {
+		t.Error("manager did not persist a ProposalStatus to the store")
+	}
 }
