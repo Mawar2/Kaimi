@@ -10,7 +10,7 @@ This document is the authoritative contract for the Kaimi dashboard's three view
 ## Technology Constraints
 
 - **Renderer:** Go stdlib `net/http` + `html/template`
-- **Styling:** Minimal inline CSS only; no external CSS files, no JS framework, no external assets
+- **Styling:** Minimal inline CSS only; no external CSS files, no JS framework, no external assets. Inline SVG and `data:` URIs (the brand mark and favicon from `internal/dashboard/brand.go`) count as inline, not external
 - **JavaScript:** None. All interactivity is handled by HTML form submissions and server-side rendering
 - **Auto-refresh:** `<meta http-equiv="refresh">` tag (see §Auto-Refresh below)
 - **Auth:** None; localhost-only, trusted network assumed
@@ -52,7 +52,7 @@ A horizontal row of cards, one per stage, showing the live count of opportunitie
 **Visual treatment:**
 - Each card shows: label (bold), count (large number), no other content
 - Cards are rendered as `<div>` elements in a flex row using inline `display:flex; gap:1rem`
-- The "Awaiting Human Review" card uses a distinct background color (`background:#fffbe6; border:1px solid #f0c040`) to draw attention
+- The "Awaiting Human Review" card uses the brand's "needs human" amber (`background:#FFF3E0; border:1px solid #E8870E`) to draw attention. Amber is reserved app-wide for "a human is needed" — never use it decoratively
 - No links on the cards; they are informational only
 
 ### 1.2 Opportunity Table
@@ -94,7 +94,7 @@ This logic must be implemented in a single Go function (e.g. `deriveStage(o Oppo
 If `ResponseDeadline` is within 7 calendar days from the current server time (inclusive of today), the deadline cell is rendered with a visual flag:
 
 ```html
-<td style="background:#fff0f0; color:#c00; font-weight:bold;">2026-06-14 ⚠</td>
+<td style="background:#FCE8E8; color:#DC2626; font-weight:bold;">2026-06-14 ⚠</td>
 ```
 
 If `ResponseDeadline` is zero (not set), display `—` with no flag.
@@ -214,7 +214,7 @@ A `← Back to pipeline` link at the top of the page pointing to `/` (no query p
 
 ## Shared Layout
 
-Both views share a minimal outer layout:
+Both views share a minimal outer layout, branded with the locked Kai wave system (see `internal/dashboard/brand.go`, implemented from the `Kaimi Brand.html` design handoff):
 
 ```html
 <!DOCTYPE html>
@@ -223,31 +223,39 @@ Both views share a minimal outer layout:
   <meta charset="UTF-8">
   <meta http-equiv="refresh" content="30">
   <title>Kaimi — {{.PageTitle}}</title>
+  {{.FaviconLink}}   <!-- dashboard.FaviconLink(): inline data-URI brand favicon -->
   <style>
-    body { font-family: sans-serif; margin: 1rem 2rem; color: #222; }
+    body { font-family: system-ui, sans-serif; margin: 1rem 2rem; color: #0A1B3D; background: #FBFCFE; }
     table { border-collapse: collapse; width: 100%; }
-    th, td { border: 1px solid #ddd; padding: 0.4rem 0.6rem; text-align: left; }
-    th { background: #f5f5f5; }
-    tr:nth-child(even) { background: #fafafa; }
+    th, td { border: 1px solid rgba(16,30,60,0.12); padding: 0.4rem 0.6rem; text-align: left; }
+    th { background: #FAFCFF; }
+    tr:nth-child(even) { background: #FAFCFF; }
     .stage-cards { display: flex; gap: 1rem; flex-wrap: wrap; margin-bottom: 1.5rem; }
-    .stage-card { border: 1px solid #ccc; border-radius: 4px; padding: 0.75rem 1rem; min-width: 120px; }
+    .stage-card { background: #fff; border: 1px solid rgba(16,30,60,0.12); border-radius: 4px; padding: 0.75rem 1rem; min-width: 120px; }
     .stage-card .count { font-size: 2rem; font-weight: bold; }
-    .stage-card-alert { background: #fffbe6; border-color: #f0c040; }
-    .deadline-soon { background: #fff0f0; color: #c00; font-weight: bold; }
-    .rec-bid { color: #080; font-weight: bold; }
-    .rec-nobid { color: #c00; font-weight: bold; }
-    .filter-bar { margin-bottom: 0.75rem; font-size: 0.9rem; color: #555; }
-    a { color: #0057b8; }
+    .stage-card-alert { background: #FFF3E0; border-color: #E8870E; }
+    .deadline-soon { background: #FCE8E8; color: #DC2626; font-weight: bold; }
+    .rec-bid { color: #15A06B; font-weight: bold; }
+    .rec-nobid { color: #C2354A; font-weight: bold; }
+    .filter-bar { margin-bottom: 0.75rem; font-size: 0.9rem; color: #5A6B86; }
+    a { color: #2563EB; }
   </style>
 </head>
 <body>
-  <h1>Kaimi Pipeline</h1>
+  {{.HeaderLockup}}  <!-- dashboard.HeaderLockup(): Kai wave mark + "Kaimi" wordmark + "THE SEEKER"; replaces the plain <h1> -->
   {{template "content" .}}
 </body>
 </html>
 ```
 
 The `<meta http-equiv="refresh" content="30">` tag is omitted on the 404 error page since there is nothing new to fetch.
+
+**Brand color mapping** (semantic — color always means the same thing):
+- Ink/text: navy `#0A1B3D`; secondary text `#5A6B86`; links and "agent working" blue `#2563EB`
+- "A human is needed" amber `#E8870E` on `#FFF3E0` — used ONLY for Awaiting Human Review
+- Bid / done green `#15A06B`; No-Bid rose `#C2354A`; failed / critical deadline red `#DC2626`
+- Backgrounds are navy-tinted neutrals (`#FBFCFE` page, `#FAFCFF` panels); borders `rgba(16,30,60,0.12)`
+- Fonts stay on the system stack (no external fonts, per Technology Constraints); the brand's Figtree/IBM Plex Mono pairing applies to surfaces that may ship external assets in later phases
 
 ---
 
