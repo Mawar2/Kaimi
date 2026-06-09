@@ -63,7 +63,6 @@ func TestNewClient_ADCMode_NoSharedDrive(t *testing.T) {
 	}
 }
 
-
 // TestNewClient_LiveModeNoSharedDrive verifies that creating a live client without
 // a configured Shared Drive ID fails with a clear error.
 func TestNewClient_LiveModeNoSharedDrive(t *testing.T) {
