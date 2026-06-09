@@ -1,5 +1,10 @@
-// Package dashboard provides the HTTP server, view-model builder, and pipeline
-// stage derivation logic for the Kaimi opportunity-pipeline dashboard.
+// Package dashboard provides the store-backed view/query helper for the Kaimi
+// opportunity-pipeline dashboard (GitHub issue #108, approved for Phase 0).
+//
+// Phase 0 scope: this package adds read-only filter, sort, and deadline-flag
+// helpers on top of the existing Store interface. It does not introduce any new
+// agents, infrastructure, or stored fields — all stage derivation is
+// deterministic from existing Opportunity fields.
 //
 // The package is read-only with respect to the Store: it only calls
 // store.Store.Get and store.Store.List; it never calls store.Store.Save or

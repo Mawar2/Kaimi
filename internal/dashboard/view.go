@@ -2,6 +2,7 @@ package dashboard
 
 import (
 	"context"
+	"fmt"
 	"sort"
 	"time"
 
@@ -82,7 +83,7 @@ func NewService(s store.Store) *Service {
 func (svc *Service) List(ctx context.Context, opts ListOptions) ([]OpportunityRow, error) {
 	opps, err := svc.store.List(ctx, &store.Filter{MinScore: opts.MinScore})
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("dashboard list: %w", err)
 	}
 
 	rows := make([]OpportunityRow, 0, len(opps))
@@ -111,7 +112,11 @@ func (svc *Service) List(ctx context.Context, opts ListOptions) ([]OpportunityRo
 // Get returns the full Opportunity for the detail page.
 // It reads through the store interface without mutation.
 func (svc *Service) Get(ctx context.Context, id string) (*opportunity.Opportunity, error) {
-	return svc.store.Get(ctx, id)
+	opp, err := svc.store.Get(ctx, id)
+	if err != nil {
+		return nil, fmt.Errorf("dashboard get %s: %w", id, err)
+	}
+	return opp, nil
 }
 
 // toRow converts an Opportunity and its derived Stage to an OpportunityRow.
