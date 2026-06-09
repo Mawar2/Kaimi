@@ -94,8 +94,6 @@ type PastPerformance struct {
 // CapabilityProfile represents BlueMeta Technologies' capabilities, certifications,
 // and past performance for federal contracting.
 //
-// Named CapabilityProfile (not just Profile) per Issue #9 acceptance criteria.
-//
 // This profile is used by:
 //   - Hunter agent: Hard eligibility gates (set-aside status, NAICS codes)
 //   - Scorer agent: Fit reasoning (competencies, past performance, NAICS tiers)
@@ -103,8 +101,10 @@ type PastPerformance struct {
 // The profile is loaded from a YAML config file and designed to be forward-compatible
 // with Phase 3 enhancements (knowledge base, embeddings, full past-performance narratives).
 //
-//nolint:revive // Stutter (capability.CapabilityProfile) is intentional per Issue #9 AC.
-type CapabilityProfile struct {
+// Note: Named CapabilityProfile (not just Profile) per Issue #9 acceptance criteria,
+// despite stuttering with package name. The explicit name improves clarity when reading
+// agent code that uses this type.
+type CapabilityProfile struct { //nolint:revive // Name specified in Issue #9 acceptance criteria
 	// UEI is the Unique Entity Identifier (replaced DUNS in 2022)
 	UEI string `yaml:"uei" json:"uei"`
 
