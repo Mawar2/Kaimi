@@ -160,7 +160,7 @@ cage: "9RY40"
 
 // TestGetNAICSByTier tests filtering NAICS codes by tier
 func TestGetNAICSByTier(t *testing.T) {
-	profile := &CapabilityProfile{
+	profile := &Profile{
 		NAICSCodes: []NAICSCode{
 			{Code: "541519", Description: "Primary 1", Tier: TierPrimary},
 			{Code: "541512", Description: "Primary 2", Tier: TierPrimary},
@@ -190,7 +190,7 @@ func TestGetNAICSByTier(t *testing.T) {
 
 // TestIsEligibleForSetAside tests checking eligibility for different set-aside types
 func TestIsEligibleForSetAside(t *testing.T) {
-	profile := &CapabilityProfile{
+	profile := &Profile{
 		SetAside: SetAsideStatus{
 			SmallBusiness: true,
 			SDB:           true,
