@@ -109,6 +109,15 @@ func (svc *Service) List(ctx context.Context, opts ListOptions) ([]OpportunityRo
 	return rows, nil
 }
 
+// CountsByStage returns a map of stage counts across all opportunities in the store.
+func (svc *Service) CountsByStage(ctx context.Context) (map[Stage]int, error) {
+	opps, err := svc.store.List(ctx, nil)
+	if err != nil {
+		return nil, fmt.Errorf("dashboard counts: %w", err)
+	}
+	return CountByStage(opps), nil
+}
+
 // Get returns the full Opportunity for the detail page.
 // It reads through the store interface without mutation.
 func (svc *Service) Get(ctx context.Context, id string) (*opportunity.Opportunity, error) {

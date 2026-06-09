@@ -60,8 +60,13 @@ func run() error {
 		tmpl: tmpl,
 	}
 
+	// Opportunity table handler (issue #110): filters, sort, and deadline flag.
+	opportunityHandler := dashboard.NewHandler(svc)
+
 	mux := http.NewServeMux()
 	mux.HandleFunc("/", srv.handleOverview)
+	mux.Handle("/opportunities", opportunityHandler)
+	mux.Handle("/opportunities/", opportunityHandler)
 
 	addr := net.JoinHostPort("127.0.0.1", fmt.Sprintf("%d", *port))
 	httpSrv := &http.Server{
