@@ -55,6 +55,7 @@ func TestHandleList(t *testing.T) {
 	svc := dashboard.NewService(s)
 	// We'll define NewHandler in handler.go
 	h := dashboard.NewHandler(svc)
+	h.Now = func() time.Time { return now }
 
 	tests := []struct {
 		name          string

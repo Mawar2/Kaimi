@@ -13,6 +13,7 @@ type Handler struct {
 	svc  *Service
 	mux  *http.ServeMux
 	tmpl *template.Template
+	Now  func() time.Time
 }
 
 // NewHandler initializes a new dashboard handler.
@@ -20,6 +21,7 @@ func NewHandler(svc *Service) *Handler {
 	h := &Handler{
 		svc: svc,
 		mux: http.NewServeMux(),
+		Now: time.Now,
 	}
 	h.setupRoutes()
 	h.setupTemplates()
@@ -158,7 +160,7 @@ func (h *Handler) handleList(w http.ResponseWriter, r *http.Request) {
 	query := r.URL.Query()
 
 	opts := ListOptions{
-		Now: time.Now(),
+		Now: h.Now(),
 	}
 
 	if s := query.Get("stage"); s != "" {
