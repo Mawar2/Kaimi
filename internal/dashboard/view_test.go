@@ -72,41 +72,20 @@ func TestService_List_StageFilter(t *testing.T) {
 			wantIDs: []string{"hunted"},
 		},
 		{
-			name:    "scored: ScoredAt set, not selected",
+			name:    "scored: ScoredAt set",
 			filter:  dashboard.StageScored,
 			wantIDs: []string{"scored"},
 		},
-		{
-			name:    "selected: Selected=true, ProposalStatus empty",
-			filter:  dashboard.StageSelected,
-			wantIDs: []string{"selected"},
-		},
-		{
-			name:    "in_proposal: Selected=true, ProposalStatus set",
-			filter:  dashboard.StageInProposal,
-			wantIDs: []string{"inproposal"},
-		},
-		{
-			name:    "awaiting_human: ProposalStatus ends with :needs_human",
-			filter:  dashboard.StageAwaitingHumanReview,
-			wantIDs: []string{"awaiting"},
-		},
-		{
-			name:    "finalized: ProposalStatus == final-review:ready_to_submit",
-			filter:  dashboard.StageFinalized,
-			wantIDs: []string{"final"},
-		},
+		// TODO(phase-1): test StageSelected when that stage is introduced.
+		// TODO(phase-2): test StageInProposal, StageAwaitingHumanReview.
+		// TODO(phase-3): test StageFinalized.
 	}
 
-	// Seed one opportunity for each stage.
+	// Seed one opportunity for each Phase 0 stage.
 	s := newTestStore(t)
 	seed := []*opportunity.Opportunity{
 		{ID: "hunted", Score: 0, ScoredAt: nil},
 		{ID: "scored", Score: 0.7, ScoredAt: &now},
-		{ID: "selected", Score: 0.8, ScoredAt: &now, Selected: true},
-		{ID: "inproposal", Score: 0.8, ScoredAt: &now, Selected: true, ProposalStatus: "outline:success"},
-		{ID: "awaiting", Score: 0.8, ScoredAt: &now, Selected: true, ProposalStatus: "writer:needs_human"},
-		{ID: "final", Score: 0.9, ScoredAt: &now, Selected: true, ProposalStatus: "final-review:ready_to_submit"},
 	}
 	for _, opp := range seed {
 		if err := s.Save(ctx, opp); err != nil {
