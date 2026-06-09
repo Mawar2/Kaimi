@@ -1,5 +1,14 @@
-// Package dashboard provides the store-backed view/query helper for the Kaimi
+// Package dashboard provides the HTTP server and supporting logic for the
+// Kaimi pipeline dashboard. It reads opportunity data through the store.Store
+// interface and presents it as a read-only web UI.
+//
+// It also provides the store-backed view/query helper for the Kaimi
 // opportunity-pipeline dashboard (GitHub issue #108, approved for Phase 0).
+//
+// Wave 1 scope: stage derivation, per-stage counts, and HTTP server skeleton.
+// Wave 2 scope: list and detail handlers.
+// Wave 3 scope: HTML templates.
+// Wave 4 scope: human-action endpoints (select, approve, reject).
 //
 // Phase 0 scope: this package adds read-only filter, sort, and deadline-flag
 // helpers on top of the existing Store interface. It does not introduce any new
