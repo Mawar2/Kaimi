@@ -1,6 +1,6 @@
-// Package capability provides the Profile for BlueMeta Technologies.
+// Package capability provides the CapabilityProfile for BlueMeta Technologies.
 //
-// The Profile is a structured representation of the company's capabilities,
+// The CapabilityProfile is a structured representation of the company's capabilities,
 // certifications, past performance, and eligibility for federal contracting set-asides.
 // It is used by the Hunter agent (for hard eligibility gates) and the Scorer agent
 // (for fit reasoning and bid/no-bid scoring).
@@ -91,8 +91,10 @@ type PastPerformance struct {
 	WhatItProves []string `yaml:"what_it_proves" json:"what_it_proves"`
 }
 
-// Profile represents BlueMeta Technologies' capabilities, certifications,
+// CapabilityProfile represents BlueMeta Technologies' capabilities, certifications,
 // and past performance for federal contracting.
+//
+// Named CapabilityProfile (not just Profile) per Issue #9 acceptance criteria.
 //
 // This profile is used by:
 //   - Hunter agent: Hard eligibility gates (set-aside status, NAICS codes)
@@ -100,7 +102,9 @@ type PastPerformance struct {
 //
 // The profile is loaded from a YAML config file and designed to be forward-compatible
 // with Phase 3 enhancements (knowledge base, embeddings, full past-performance narratives).
-type Profile struct {
+//
+//nolint:revive // Stutter (capability.CapabilityProfile) is intentional per Issue #9 AC.
+type CapabilityProfile struct {
 	// UEI is the Unique Entity Identifier (replaced DUNS in 2022)
 	UEI string `yaml:"uei" json:"uei"`
 
@@ -131,7 +135,7 @@ type Profile struct {
 	PastPerformance []PastPerformance `yaml:"past_performance" json:"past_performance"`
 }
 
-// LoadProfile loads a Profile from a YAML file.
+// LoadProfile loads a CapabilityProfile from a YAML file.
 //
 // Example usage:
 //
@@ -139,15 +143,15 @@ type Profile struct {
 //	if err != nil {
 //	    log.Fatalf("Failed to load capability profile: %v", err)
 //	}
-func LoadProfile(path string) (*Profile, error) {
+func LoadProfile(path string) (*CapabilityProfile, error) {
 	// Read the YAML file
 	data, err := os.ReadFile(path)
 	if err != nil {
 		return nil, fmt.Errorf("failed to read profile file: %w", err)
 	}
 
-	// Parse YAML into Profile struct
-	var profile Profile
+	// Parse YAML into CapabilityProfile struct
+	var profile CapabilityProfile
 	err = yaml.Unmarshal(data, &profile)
 	if err != nil {
 		return nil, fmt.Errorf("failed to parse profile YAML: %w", err)
@@ -160,7 +164,7 @@ func LoadProfile(path string) (*Profile, error) {
 //
 // This is useful for the Scorer agent, which weights NAICS matches by tier:
 // primary match > secondary match > tertiary match.
-func (p *Profile) GetNAICSByTier(tier NAICSTier) []NAICSCode {
+func (p *CapabilityProfile) GetNAICSByTier(tier NAICSTier) []NAICSCode {
 	var codes []NAICSCode
 	for _, code := range p.NAICSCodes {
 		if code.Tier == tier {
@@ -182,7 +186,7 @@ func (p *Profile) GetNAICSByTier(tier NAICSTier) []NAICSCode {
 //   - "full-and-open" (unrestricted competition - always eligible)
 //
 // This is used by the Hunter agent to filter out opportunities we're not eligible for.
-func (p *Profile) IsEligibleForSetAside(setAsideType string) bool {
+func (p *CapabilityProfile) IsEligibleForSetAside(setAsideType string) bool {
 	// Normalize to lowercase for case-insensitive comparison
 	setAsideType = strings.ToLower(strings.TrimSpace(setAsideType))
 
