@@ -6,14 +6,12 @@ import (
 	"net/http"
 	"strconv"
 	"time"
-
-	"github.com/gorilla/mux"
 )
 
 // Handler wraps the dashboard service and manages HTTP routing.
 type Handler struct {
 	svc  *Service
-	mux  *mux.Router
+	mux  *http.ServeMux
 	tmpl *template.Template
 }
 
@@ -21,7 +19,7 @@ type Handler struct {
 func NewHandler(svc *Service) *Handler {
 	h := &Handler{
 		svc: svc,
-		mux: mux.NewRouter(),
+		mux: http.NewServeMux(),
 	}
 	h.setupRoutes()
 	h.setupTemplates()
@@ -29,7 +27,7 @@ func NewHandler(svc *Service) *Handler {
 }
 
 func (h *Handler) setupRoutes() {
-	h.mux.HandleFunc("/", h.handleList).Methods("GET")
+	h.mux.HandleFunc("/", h.handleList)
 }
 
 func (h *Handler) setupTemplates() {
@@ -151,6 +149,11 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *Handler) handleList(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
 	ctx := r.Context()
 	query := r.URL.Query()
 
@@ -180,13 +183,11 @@ func (h *Handler) handleList(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// For stage cards, we need the counts across all stages (ignoring filters)
-	allOpps, err := h.svc.store.List(ctx, nil)
+	counts, err := h.svc.CountsByStage(ctx)
 	if err != nil {
-		http.Error(w, fmt.Sprintf("failed to load opportunities for cards: %v", err), http.StatusInternalServerError)
+		http.Error(w, fmt.Sprintf("failed to load counts for cards: %v", err), http.StatusInternalServerError)
 		return
 	}
-
-	counts := CountByStage(allOpps)
 
 	data := OverviewData{
 		PageTitle: "Overview",
