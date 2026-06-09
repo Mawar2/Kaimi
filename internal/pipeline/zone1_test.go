@@ -7,6 +7,7 @@ import (
 	"testing"
 
 	"github.com/Mawar2/Kaimi/internal/opportunity"
+	"github.com/Mawar2/Kaimi/internal/profile"
 	"github.com/Mawar2/Kaimi/internal/scorer"
 	"github.com/Mawar2/Kaimi/internal/store"
 )
@@ -47,6 +48,24 @@ func testScoringProfile() *scorer.CapabilityProfile {
 	}
 }
 
+// testEligibilityProfile returns a minimal profile.CapabilityProfile for unit tests.
+// The NAICS codes cover the codes used by threeOpps(), and the set-aside flags reflect
+// BlueMeta's actual certifications (small business, SDB; not 8A, SDVOSB, WOSB, HUBZone).
+// IsEligible will therefore pass "" and "SBA" and drop "8A" — matching threeOpps expectations.
+func testEligibilityProfile() *profile.CapabilityProfile {
+	return &profile.CapabilityProfile{
+		Company: "BlueMeta Technologies (test)",
+		NAICSCodes: []profile.NAICSCode{
+			{Code: "541512", Description: "Computer Systems Design Services", Tier: profile.TierPrimary},
+			{Code: "518210", Description: "Computing Infrastructure Providers", Tier: profile.TierSecondary},
+		},
+		SetAside: profile.SetAsideStatus{
+			SmallBusiness: true,
+			SDB:           true,
+		},
+	}
+}
+
 // threeOpps returns two eligible opportunities and one set-aside (8A) opportunity
 // that the eligibility gate must drop before scoring.
 func threeOpps() []*opportunity.Opportunity {
@@ -63,10 +82,11 @@ func TestRunZone1_CachedFullRun_ProducesScoredOpportunities(t *testing.T) {
 		t.Fatalf("NewJSONStore: %v", err)
 	}
 	report, err := RunZone1(context.Background(), &Zone1Deps{
-		Sam:     &mockSam{opps: threeOpps()},
-		Scorer:  scorer.NewDeterministicScorer(),
-		Store:   st,
-		Profile: testScoringProfile(),
+		Sam:         &mockSam{opps: threeOpps()},
+		Scorer:      scorer.NewDeterministicScorer(),
+		Store:       st,
+		Profile:     testScoringProfile(),
+		Eligibility: testEligibilityProfile(),
 	})
 	if err != nil {
 		t.Fatalf("RunZone1: %v", err)
@@ -115,10 +135,11 @@ func TestRunZone1_ScorerError_CountsFailedAndContinues(t *testing.T) {
 		t.Fatalf("NewJSONStore: %v", err)
 	}
 	report, err := RunZone1(context.Background(), &Zone1Deps{
-		Sam:     &mockSam{opps: threeOpps()},
-		Scorer:  &failingScorer{failID: "elig-sba"},
-		Store:   st,
-		Profile: testScoringProfile(),
+		Sam:         &mockSam{opps: threeOpps()},
+		Scorer:      &failingScorer{failID: "elig-sba"},
+		Store:       st,
+		Profile:     testScoringProfile(),
+		Eligibility: testEligibilityProfile(),
 	})
 	if err != nil {
 		t.Fatalf("RunZone1 should not abort on a single scoring failure: %v", err)
@@ -144,10 +165,11 @@ func TestRunZone1_ContextCancelled_StopsEarly(t *testing.T) {
 	cancel() // cancel before the run so the loop bails on the first iteration
 
 	_, err := RunZone1(ctx, &Zone1Deps{
-		Sam:     &mockSam{opps: threeOpps()},
-		Scorer:  scorer.NewDeterministicScorer(),
-		Store:   st,
-		Profile: testScoringProfile(),
+		Sam:         &mockSam{opps: threeOpps()},
+		Scorer:      scorer.NewDeterministicScorer(),
+		Store:       st,
+		Profile:     testScoringProfile(),
+		Eligibility: testEligibilityProfile(),
 	})
 	if err == nil {
 		t.Error("expected a context error when ctx is cancelled, got nil")
@@ -157,10 +179,11 @@ func TestRunZone1_ContextCancelled_StopsEarly(t *testing.T) {
 func TestRunZone1_FetchError_Propagates(t *testing.T) {
 	st, _ := store.NewJSONStore(t.TempDir())
 	_, err := RunZone1(context.Background(), &Zone1Deps{
-		Sam:     &mockSam{err: errors.New("sam down")},
-		Scorer:  scorer.NewDeterministicScorer(),
-		Store:   st,
-		Profile: testScoringProfile(),
+		Sam:         &mockSam{err: errors.New("sam down")},
+		Scorer:      scorer.NewDeterministicScorer(),
+		Store:       st,
+		Profile:     testScoringProfile(),
+		Eligibility: testEligibilityProfile(),
 	})
 	if err == nil {
 		t.Error("expected error when SAM.gov fetch fails, got nil")
@@ -169,11 +192,13 @@ func TestRunZone1_FetchError_Propagates(t *testing.T) {
 
 func TestRunZone1_MissingDeps_Error(t *testing.T) {
 	st, _ := store.NewJSONStore(t.TempDir())
+	ep := testEligibilityProfile()
 	cases := map[string]Zone1Deps{
-		"no sam":     {Scorer: scorer.NewDeterministicScorer(), Store: st, Profile: testScoringProfile()},
-		"no scorer":  {Sam: &mockSam{}, Store: st, Profile: testScoringProfile()},
-		"no store":   {Sam: &mockSam{}, Scorer: scorer.NewDeterministicScorer(), Profile: testScoringProfile()},
-		"no profile": {Sam: &mockSam{}, Scorer: scorer.NewDeterministicScorer(), Store: st},
+		"no sam":         {Scorer: scorer.NewDeterministicScorer(), Store: st, Profile: testScoringProfile(), Eligibility: ep},
+		"no scorer":      {Sam: &mockSam{}, Store: st, Profile: testScoringProfile(), Eligibility: ep},
+		"no store":       {Sam: &mockSam{}, Scorer: scorer.NewDeterministicScorer(), Profile: testScoringProfile(), Eligibility: ep},
+		"no profile":     {Sam: &mockSam{}, Scorer: scorer.NewDeterministicScorer(), Store: st, Eligibility: ep},
+		"no eligibility": {Sam: &mockSam{}, Scorer: scorer.NewDeterministicScorer(), Store: st, Profile: testScoringProfile()},
 	}
 	for name, deps := range cases {
 		deps := deps

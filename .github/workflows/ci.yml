@@ -65,7 +65,7 @@ jobs:
     - name: Run golangci-lint
       uses: golangci/golangci-lint-action@v9
       with:
-        version: latest  # Use latest version (v2.x) built with Go 1.25+
+        version: v2.12.2  # Pinned for reproducible lint (was 'latest' — nondeterministic staticcheck)
         args: --timeout=5m
 
   verify-gcp:
