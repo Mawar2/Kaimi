@@ -75,12 +75,35 @@ func TestDashboardHandler(t *testing.T) {
 		}
 	}
 
-	// Check for specific counts
-	// Hunted: 1, Scored: 1, Selected: 1, others: 0
-
-	// Better way to check counts:
-	if !strings.Contains(body, "1") {
-		t.Errorf("expected body to contain count 1")
+	// Verify each stage heading is followed by its expected count.
+	// Template renders: <h3>STAGE</h3> then <div class="count">N</div>.
+	// Test data: Hunted:1, Scored:1, Selected:1, all others:0.
+	stageCounts := []struct {
+		stage string
+		count string
+	}{
+		{"Hunted", "1"},
+		{"Scored", "1"},
+		{"Selected", "1"},
+		{"In Proposal", "0"},
+		{"Awaiting Human Review", "0"},
+		{"Finalized", "0"},
+	}
+	for _, tc := range stageCounts {
+		heading := "<h3>" + tc.stage + "</h3>"
+		idx := strings.Index(body, heading)
+		if idx == -1 {
+			t.Errorf("stage %q: heading not found in rendered HTML", tc.stage)
+			continue
+		}
+		after := body[idx+len(heading):]
+		if len(after) > 200 {
+			after = after[:200]
+		}
+		want := `<div class="count">` + tc.count + `</div>`
+		if !strings.Contains(after, want) {
+			t.Errorf("stage %q: expected count %q immediately after heading, got:\n%s", tc.stage, tc.count, after)
+		}
 	}
 }
 

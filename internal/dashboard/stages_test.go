@@ -142,7 +142,7 @@ func TestDeriveStage(t *testing.T) {
 func TestCountByStage(t *testing.T) {
 	t1 := scored()
 
-	opps := []opportunity.Opportunity{
+	opps := []*opportunity.Opportunity{
 		// 2 Hunted
 		{ScoredAt: nil, Selected: false},
 		{ScoredAt: nil, Selected: false},
