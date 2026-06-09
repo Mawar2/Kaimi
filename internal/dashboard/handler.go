@@ -70,7 +70,7 @@ func (h *Handler) setupTemplates() {
   </div>
 
   <div class="filter-bar">
-    <form method="GET" action="/">
+    <form method="GET" action="/opportunities">
       <label for="stage">Stage:</label>
       <select name="stage" id="stage">
         <option value="">All</option>
@@ -92,7 +92,7 @@ func (h *Handler) setupTemplates() {
       </select>
 
       <button type="submit">Apply</button>
-      <a href="/">Clear</a>
+      <a href="/opportunities">Clear</a>
     </form>
   </div>
 
