@@ -11,14 +11,15 @@
 //     (GCP Application Default Credentials).
 //
 // Configuration is read from flags or environment variables:
-//   - MODE:           "cached" or "live"        (default: cached)
-//   - STORE_PATH:     store directory           (default: ./queue)
-//   - PROFILE_PATH:   scoring profile JSON       (default: ./test/fixtures/capability_profile.json)
-//   - NAICS_CODES:    comma-separated overrides  (default: BlueMeta's profile)
-//   - SAM_API_KEY:    required for live mode
-//   - GCP_PROJECT_ID: required for live mode
-//   - GCP_REGION:     GCP region                 (default: us-east4)
-//   - GEMINI_MODEL:   model name                 (default: gemini-2.5-pro)
+//   - MODE:                  "cached" or "live"         (default: cached)
+//   - STORE_PATH:            store directory            (default: ./queue)
+//   - PROFILE_PATH:          scoring profile JSON        (default: ./test/fixtures/capability_profile.json)
+//   - ELIGIBILITY_PROFILE_PATH: eligibility profile JSON (default: config/profile.json)
+//   - NAICS_CODES:           comma-separated overrides   (default: eligibility profile's codes)
+//   - SAM_API_KEY:           required for live mode
+//   - GCP_PROJECT_ID:        required for live mode
+//   - GCP_REGION:            GCP region                  (default: us-east4)
+//   - GEMINI_MODEL:          model name                  (default: gemini-2.5-pro)
 //
 // Example:
 //
@@ -39,6 +40,7 @@ import (
 	"strings"
 
 	"github.com/Mawar2/Kaimi/internal/pipeline"
+	"github.com/Mawar2/Kaimi/internal/profile"
 	"github.com/Mawar2/Kaimi/internal/samgov"
 	"github.com/Mawar2/Kaimi/internal/scorer"
 	"github.com/Mawar2/Kaimi/internal/store"
@@ -46,10 +48,11 @@ import (
 
 // Config holds the pipeline runner configuration.
 type Config struct {
-	Mode        string // "cached" or "live"
-	StorePath   string
-	ProfilePath string
-	NAICSCodes  []string
+	Mode                   string // "cached" or "live"
+	StorePath              string
+	ProfilePath            string // scoring profile (scorer.CapabilityProfile JSON)
+	EligibilityProfilePath string // eligibility profile (profile.CapabilityProfile JSON/YAML)
+	NAICSCodes             []string
 
 	// Live-mode only.
 	SamAPIKey   string
@@ -74,7 +77,8 @@ func run() error {
 	fmt.Println("Kaimi Zone-1 pipeline starting...")
 	fmt.Printf("Mode: %s\n", config.Mode)
 	fmt.Printf("Store path: %s\n", config.StorePath)
-	fmt.Printf("Profile: %s\n", config.ProfilePath)
+	fmt.Printf("Scoring profile: %s\n", config.ProfilePath)
+	fmt.Printf("Eligibility profile: %s\n", config.EligibilityProfilePath)
 
 	// Abort gracefully on Ctrl+C rather than killing mid-write.
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt)
@@ -82,7 +86,15 @@ func run() error {
 
 	scoringProfile, err := loadProfile(config.ProfilePath)
 	if err != nil {
-		return fmt.Errorf("failed to load capability profile: %w", err)
+		return fmt.Errorf("failed to load scoring capability profile: %w", err)
+	}
+
+	// Load the eligibility profile used by the Hunter gate to filter set-asides.
+	// This is separate from the scoring profile: it uses profile.CapabilityProfile
+	// (with structured NAICS codes and set-aside flags) rather than scorer.CapabilityProfile.
+	eligibilityProfile, err := profile.LoadProfile(config.EligibilityProfilePath)
+	if err != nil {
+		return fmt.Errorf("failed to load eligibility profile: %w", err)
 	}
 
 	opportunityStore, err := store.NewJSONStore(config.StorePath)
@@ -96,11 +108,12 @@ func run() error {
 	}
 
 	report, err := pipeline.RunZone1(ctx, &pipeline.Zone1Deps{
-		Sam:        samClient,
-		Scorer:     scoreEngine,
-		Store:      opportunityStore,
-		Profile:    scoringProfile,
-		NAICSCodes: config.NAICSCodes,
+		Sam:         samClient,
+		Scorer:      scoreEngine,
+		Store:       opportunityStore,
+		Profile:     scoringProfile,
+		Eligibility: eligibilityProfile,
+		NAICSCodes:  config.NAICSCodes,
 	})
 	if err != nil {
 		return fmt.Errorf("zone-1 run failed: %w", err)
@@ -153,18 +166,19 @@ func loadProfile(path string) (*scorer.CapabilityProfile, error) {
 	if err != nil {
 		return nil, fmt.Errorf("read profile file: %w", err)
 	}
-	var profile scorer.CapabilityProfile
-	if err := json.Unmarshal(data, &profile); err != nil {
+	var cp scorer.CapabilityProfile
+	if err := json.Unmarshal(data, &cp); err != nil {
 		return nil, fmt.Errorf("parse profile JSON: %w", err)
 	}
-	return &profile, nil
+	return &cp, nil
 }
 
 func parseConfig() Config {
 	mode := flag.String("mode", getEnv("MODE", "cached"), "Mode: cached or live")
 	storePath := flag.String("store-path", getEnv("STORE_PATH", "./queue"), "Store directory path")
-	profilePath := flag.String("profile", getEnv("PROFILE_PATH", "./test/fixtures/capability_profile.json"), "Capability profile JSON path")
-	naics := flag.String("naics", getEnv("NAICS_CODES", ""), "Comma-separated NAICS codes (default: BlueMeta profile)")
+	profilePath := flag.String("profile", getEnv("PROFILE_PATH", "./test/fixtures/capability_profile.json"), "Scoring capability profile JSON path (scorer.CapabilityProfile)")
+	eligibilityProfilePath := flag.String("eligibility-profile", getEnv("ELIGIBILITY_PROFILE_PATH", "config/profile.json"), "Eligibility profile JSON/YAML path (profile.CapabilityProfile)")
+	naics := flag.String("naics", getEnv("NAICS_CODES", ""), "Comma-separated NAICS codes (default: eligibility profile's codes)")
 	project := flag.String("project", getEnv("GCP_PROJECT_ID", ""), "GCP project ID (required for live mode)")
 	region := flag.String("region", getEnv("GCP_REGION", "us-east4"), "GCP region")
 	model := flag.String("model", getEnv("GEMINI_MODEL", "gemini-2.5-pro"), "Gemini model name")
@@ -172,14 +186,15 @@ func parseConfig() Config {
 	flag.Parse()
 
 	return Config{
-		Mode:        *mode,
-		StorePath:   *storePath,
-		ProfilePath: *profilePath,
-		NAICSCodes:  splitCSV(*naics),
-		SamAPIKey:   getEnv("SAM_API_KEY", ""),
-		ProjectID:   *project,
-		Region:      *region,
-		GeminiModel: *model,
+		Mode:                   *mode,
+		StorePath:              *storePath,
+		ProfilePath:            *profilePath,
+		EligibilityProfilePath: *eligibilityProfilePath,
+		NAICSCodes:             splitCSV(*naics),
+		SamAPIKey:              getEnv("SAM_API_KEY", ""),
+		ProjectID:              *project,
+		Region:                 *region,
+		GeminiModel:            *model,
 	}
 }
 
