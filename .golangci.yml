@@ -24,6 +24,13 @@ linters:
           disabled: false
   exclusions:
     generated: lax
+    rules:
+      # SA5011 is a false positive with t.Fatal in tests (the nil branch
+      # halts the goroutine). Keep it active in non-test code.
+      - path: '_test\.go'
+        linters:
+          - staticcheck
+        text: 'SA5011'
     paths:
       - third_party$
       - builtin$
