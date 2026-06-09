@@ -21,9 +21,8 @@ import (
 
 // Zone1Deps are the collaborators RunZone1 needs.
 //
-// Sam, Scorer, Store, and Profile are required. Eligibility and NAICSCodes are
-// optional and default to BlueMeta's operational profile when unset, so callers
-// running the standard BlueMeta pipeline only have to supply the backends.
+// Sam, Scorer, Store, Profile, and Eligibility are all required. NAICSCodes is
+// optional and defaults to the eligibility profile's full code list when empty.
 type Zone1Deps struct {
 	// Sam fetches opportunities (cached fixtures or live SAM.gov).
 	Sam samgov.Client
@@ -39,11 +38,11 @@ type Zone1Deps struct {
 	Profile *scorer.CapabilityProfile
 
 	// Eligibility is the binary eligibility gate applied before scoring.
-	// Defaults to profile.BlueMeta when nil.
+	// Required — load via profile.LoadProfile before constructing Zone1Deps.
 	Eligibility *profile.CapabilityProfile
 
 	// NAICSCodes are the codes to fetch. Defaults to the eligibility profile's
-	// NAICSCodes when empty.
+	// full code list (AllNAICSCodes) when empty.
 	NAICSCodes []string
 }
 
@@ -87,13 +86,13 @@ func RunZone1(ctx context.Context, deps *Zone1Deps) (*Zone1Report, error) {
 		return nil, fmt.Errorf("pipeline: scoring Profile is required")
 	}
 
-	eligibility := deps.Eligibility
-	if eligibility == nil {
-		eligibility = profile.BlueMeta
+	if deps.Eligibility == nil {
+		return nil, fmt.Errorf("pipeline: Eligibility profile is required")
 	}
+	eligibility := deps.Eligibility
 	naics := deps.NAICSCodes
 	if len(naics) == 0 {
-		naics = eligibility.NAICSCodes
+		naics = eligibility.AllNAICSCodes()
 	}
 
 	opps, err := deps.Sam.FetchByNAICS(ctx, naics)
