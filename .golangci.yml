@@ -31,6 +31,12 @@ linters:
         linters:
           - staticcheck
         text: 'SA5011'
+      # WithCredentialsJSON is deprecated per security guidance; inline nolint
+      # cannot be processed due to a golangci-lint path-resolution issue with
+      # the workspace layout. Tracked for migration in phase-1.
+      - linters:
+          - staticcheck
+        text: 'SA1019: option.WithCredentialsJSON is deprecated'
     paths:
       - third_party$
       - builtin$
