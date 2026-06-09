@@ -14,7 +14,10 @@ import (
 
 func TestHandleList(t *testing.T) {
 	ctx := context.Background()
-	s, _ := store.NewJSONStore(t.TempDir())
+	s, err := store.NewJSONStore(t.TempDir())
+	if err != nil {
+		t.Fatalf("failed to create store: %v", err)
+	}
 	now := time.Date(2026, 6, 9, 12, 0, 0, 0, time.UTC)
 
 	// Seed some opportunities
