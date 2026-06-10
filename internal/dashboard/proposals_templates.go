@@ -296,7 +296,7 @@ const workspaceContentTmpl = `{{define "content"}}
   </div>
 
   {{else if eq .State "done"}}
-  <div class="ws-state" style="border-color:color-mix(in oklab,var(--st-done) 40%,transparent);background:linear-gradient(180deg,var(--st-done-bg),#fff 60%)">
+  <div class="ws-state" style="border-color:color-mix(in oklab,var(--st-done) 40%,transparent);background:linear-gradient(180deg,var(--st-done-bg),var(--surface) 60%)">
     <span class="ws-av" style="background:linear-gradient(155deg,#2BD49A,#15A06B)">` + iconCheck + `</span>
     <div style="flex:1">
       <h3>Package ready to submit</h3>
@@ -345,7 +345,7 @@ const workspaceContentTmpl = `{{define "content"}}
 
 <style>
   .edsec { margin-top: 14px; }
-  .edsec textarea { width: 100%; min-height: 120px; font: var(--t-body); color: var(--ink); background: #fff; border: 1px solid var(--border); border-radius: var(--r-md); padding: 12px 14px; resize: vertical; box-sizing: border-box; }
+  .edsec textarea { width: 100%; min-height: 120px; font: var(--t-body); color: var(--ink); background: var(--surface); border: 1px solid var(--border); border-radius: var(--r-md); padding: 12px 14px; resize: vertical; box-sizing: border-box; }
   .edsec textarea:focus { outline: none; box-shadow: 0 0 0 3px var(--ring-focus); border-color: var(--blue-300); }
   .sec-head2 { display: flex; align-items: baseline; gap: 9px; margin: 0 0 7px; }
   .sec-head2 h3 { font: 650 15px/1.3 var(--font-sans); }
@@ -353,7 +353,7 @@ const workspaceContentTmpl = `{{define "content"}}
   .ed-save-chip { font: 600 11px/1 var(--font-sans); color: var(--st-done); margin-left: 8px; text-transform: none; letter-spacing: 0; }
   .ed-save-chip.saving { color: var(--ink-3); }
   .r-actions form { margin: 0; }
-  .draft-body { white-space: pre-wrap; background: #fff; border: 1px solid var(--border); border-radius: var(--r-md); padding: 12px 14px; font: var(--t-body); color: var(--ink); }
+  .draft-body { white-space: pre-wrap; background: var(--surface); border: 1px solid var(--border); border-radius: var(--r-md); padding: 12px 14px; font: var(--t-body); color: var(--ink); }
   .draft-pending { border: 1px dashed var(--border); border-radius: var(--r-md); padding: 12px 14px; font: var(--t-small); color: var(--ink-3); font-style: italic; }
 </style>
 <script>

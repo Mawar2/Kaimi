@@ -35,7 +35,7 @@ bin\dashboard.exe --store=.\design-store --port=8901             # NB: kill stal
 | Triage | `/` | `01-opportunities.png` | ✅ 06-10 | typography only | ✅ fonts | ☐ |
 | Opportunity detail | `/opportunity/{id}` | `02-opportunity-drawer.png` | ✅ 06-10 | tokens (h2 + .kv) | ✅ no regression | ☐ |
 | Proposals command | `/proposals` | `03-proposals-command.png` | ✅ 06-10 | card link reset | ✅ navy/no-underline | ☐ |
-| Workspace | `/workspace/{id}` | `04/06/07-workspace*.png` | ☐ | ☐ | ☐ | ☐ |
+| Workspace | `/workspace/{id}` | `04/06/07-workspace*.png` | ✅ 06-10 | surfaces → `--surface` | ✅ gate+editor | ☐ |
 | Shared chrome (header/nav/states/responsive) | all | — | partial | typography | ✅ fonts | ☐ |
 | Component pass (all states) | — | `08-design-system*.png` | ☐ | ☐ | ☐ | ☐ |
 
@@ -70,7 +70,7 @@ dedup through the `agents` map (define-once) instead of repeating the literal. B
 gate avatar renders `linear-gradient(155deg,#67E0F4,#0EA5C4)`, **no `ZgotmplZ`**. TDD
 `TestAgentGradientIsStyleSafe`; `make all`-green; lint clean.
 
-### 2026-06-10 — Proposals command view: card link reset (PR pending, issue #207)
+### 2026-06-10 — Proposals command view: card link reset (PR #208, issue #207)
 
 The whole proposal card is `<a class="pcard">`, but the shared shell link reset listed only
 `a.nav-item, a.orow, a.artifact2 { text-decoration: none; color: inherit; }` — `a.pcard`
@@ -81,14 +81,18 @@ computes navy `--ink` (`rgb(10,27,61)`), `text-decoration: none`; populated `/pr
 (Waiting on you / Agents working / Ready to submit) matches `03-proposals-command.png`.
 TDD `TestProposalCardsResetLinkStyling`; `make all`-green; `golangci-lint` clean.
 
+### 2026-06-10 — Workspace: route editor surfaces through `--surface` (PR pending, issue #210)
+
+**Divergence.** `/workspace/{id}` re-hardcoded `background: #fff` on `.edsec textarea`,
+`.draft-body`, and the ready-card gradient (`#fff 60%`) — a hardcode **and** a dark-theme bug
+(white surfaces ignore the Focus theme's `--surface`). **Fix:** all three → `var(--surface)`
+(theme-aware). Verified at the gate + done states in a real browser; no light-mode regression.
+TDD `TestWorkspaceSurfacesUseDesignTokens`; `make all`-green; `golangci-lint` clean.
+
 ## Audit backlog (found while auditing; not yet ticketed/fixed)
 
-- **Workspace** (`proposals_templates.go`) re-hardcodes agent-identity gradients + `#fff`
-  surfaces (`:226,299-300,314,348,356`). Note: the agent gradients are **defined once** in
-  the `agents` map (`proposals.go:30-33`) and mirror the handoff (which also hardcodes them
-  inline; the `.kava` class defines only avatar shape). Vera's purple has no token, so route
-  only the clearly-tokenizable ones (`#fff` → `--surface`; the success-green gradient) and
-  the inline duplication at `:226`, in the Workspace iteration.
+- **Workspace success gradient** (`:300,314`, `#2BD49A,#15A06B`) mixes the light + Focus
+  `--st-done` greens — no single token; mirrors the handoff. Left as-is.
 - **Shared chrome:** `sidebarMarkSVG` (inline brand SVG, `handler.go:100`) duplicates the
   brand mark; consider sourcing it from `brand.go` (`HeaderLockup`) in the shared-chrome pass.
 - **Component coverage:** dedicated component pass — span every RecommendationPill, DeadlinePill
