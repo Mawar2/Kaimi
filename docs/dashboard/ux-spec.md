@@ -250,6 +250,8 @@ Both views share a minimal outer layout, branded with the locked Kai wave system
 
 The `<meta http-equiv="refresh" content="30">` tag is omitted on the 404 error page since there is nothing new to fetch.
 
+**Design system (canonical source):** the full Kaimi design system — tokens (`kaimi/tokens.css` from the handoff: status vocabulary, fit bands, urgency escalation, type/spacing/radii/elevation/motion, light Triage + dark Focus themes) and component classes (`kaimi/ui.css`: `kbadge`, `krec`, `kdead`, `kfit`, `kbtn`, `kchip`, `ktag`) — is defined once in `internal/dashboard` (`StyleTag()`, issue #132). Layouts emit `StyleTag()` in `<head>` and keep only page-specific rules in their own inline `<style>`. For status, recommendation, deadline, fit-score, and meta-tag display, handlers use the reusable renderers (`StatusBadge`, `RecommendationPill`, `DeadlinePill`/`UrgencyFor`, `FitRing`/`FitBandFor`, `MetaTag`) instead of hand-rolled markup, so every view stays on one vocabulary.
+
 **Brand color mapping** (semantic — color always means the same thing):
 - Ink/text: navy `#0A1B3D`; secondary text `#5A6B86`; links and "agent working" blue `#2563EB`
 - "A human is needed" amber `#E8870E` on `#FFF3E0` — used ONLY for Awaiting Human Review
