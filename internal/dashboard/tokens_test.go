@@ -133,3 +133,29 @@ func TestStyleTagContainsAppShellStyles(t *testing.T) {
 		}
 	}
 }
+
+// TestStyleTagContainsNewAppDesign verifies StyleTag carries the updated app.css
+// (the Submitted archive + export dialog) and the new editor.css, so the new
+// Kaimi App.html surfaces have their styles. (kaimi/tokens.css and ui.css are
+// unchanged in the new bundle; only app.css changed and editor.css is new.)
+func TestStyleTagContainsNewAppDesign(t *testing.T) {
+	got := string(StyleTag())
+	wants := []string{
+		".searchbox",         // Submitted toolbar search
+		".sub-list",          // Submitted archive list
+		".srow",              // a submitted row
+		".srow-docs",         // the expanded docs/outcome panel
+		".kbadge--muted",     // "Not awarded" outcome badge
+		".xmodal",            // export dialog
+		".x-qstrip",          // export FY-quarter range strip
+		".ed-fullpage",       // full-page draft editor shell
+		".ed-doc",            // editor document column
+		".ed-flag",           // editor gap callout
+		"@keyframes routeIn", // app-shell route motion (used by srow-docs/xmodal)
+	}
+	for _, want := range wants {
+		if !strings.Contains(got, want) {
+			t.Errorf("StyleTag() missing new-design rule %q", want)
+		}
+	}
+}
