@@ -87,11 +87,14 @@ they observe Zone 1's queue and Zone 2's proposal state, and the only write they
 originate is the human's decisions (selection, approve/request-changes).
 
 - **Web dashboard** — server-rendered Go HTML (`internal/dashboard`, `cmd/dashboard`).
-  Reads the `Store`, derives pipeline stage (`DeriveStage`), and renders with the
-  Go-embedded design system (tokens + components, issues #126/#132).
+  Reads the `Store` and derives pipeline stage (`DeriveStage`). The Kaimi design
+  system (tokens + components, issues #126/#132) exists in Go (`StyleTag()`,
+  `components.go`, `brand.go`) but is **not yet wired into the live render path**
+  (placeholder templates remain — the #125 follow-up); adopting it is pending Go work.
 - **Desktop dashboard** (Windows + macOS) — a **Wails v2 (Go)** app that reuses the
-  *same* `internal/store`, `internal/opportunity`, and `internal/dashboard` packages
-  (including the design system) inside an OS-webview window. Its reason to exist is
+  *same* `internal/store`, `internal/opportunity`, and `internal/dashboard` data/view
+  logic inside an OS-webview window, and shares the Go design system once it is wired
+  in (the same work the web dashboard owes). Its reason to exist is
   **offline-first proposal work**: the human can read the already-synced queue, open
   proposals, edit the working draft, and make the one review-gate decision while
   temporarily offline; those actions are queued locally and replayed on reconnect.
@@ -157,7 +160,7 @@ Zone 2 specialists for proposal generation. Phase 3+. See kaimi_timm_tickets.md 
 
 - **Opportunity** — The shared data object enriched by every agent. Hunter creates it; downstream agents add fields. Designed in Phase 0 to hold all downstream fields even though Phase 0 only populates Hunter's portion. Fields include: SAM.gov ID, title, NAICS codes, eligibility filters, posting/response dates, solicitation text, agency info, score (Phase 1+), outline (Phase 3+), draft reference (Phase 3+). Schema lives in `internal/opportunity/`. Changing this later is highest integration risk — design eagerly.
 
-- **Store interface** — Abstraction for persistence (`Save(opp)`, `Load(id)`, `List()`). JSON file implementation in Phase 0 (`internal/store/json.go`), swaps to Firestore in Phase 1+ without touching Hunter code. This is the "provision lazily, design eagerly" pattern in action.
+- **Store interface** — Abstraction for persistence. Actual signature (`internal/store/store.go`): `Save(ctx, *Opportunity)`, `Get(ctx, id)`, `List(ctx, *Filter)`, `Delete(ctx, id)`. JSON file implementation (`internal/store/json.go`, `NewJSONStore(basePath)`), designed to swap to Firestore later without touching the agents. This is the "provision lazily, design eagerly" pattern in action.
 
 - **CapabilityProfile** — Structured representation of BlueMeta Technologies' capabilities, certifications, and past performance for federal contracting. Loaded from YAML config file (`config/bluemeta_profile.yaml`). Used by Hunter agent for hard eligibility gates and Scorer agent for fit reasoning. Schema lives in `internal/capability/profile.go`. Contains:
   - Company identifiers (UEI: XVUEA59LY579, CAGE: 9RY40)

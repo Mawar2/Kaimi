@@ -6,112 +6,127 @@
 **Supersedes:** none
 **Related:** Epic [#136](https://github.com/Mawar2/Kaimi/issues/136); tickets [#138](https://github.com/Mawar2/Kaimi/issues/138) (scaffold, blocked by this), [#139](https://github.com/Mawar2/Kaimi/issues/139) (parity), [#140](https://github.com/Mawar2/Kaimi/issues/140) (sync, design-only); design handoff `DESKTOP.md`.
 
-> ADR format: [Michael Nygard](https://cognitect.com/blog/2011/11/15/documenting-architecture-decisions) (Context · Decision · Consequences). Per ARCHITECTURE.md, ADRs are append-only. This file lives under `docs/desktop/` per the acceptance criteria of #137 (the ARCHITECTURE.md ADR pointer says `docs/adr/`; desktop ADRs are co-located with the desktop docs and cross-referenced from ARCHITECTURE.md).
+> ADR format: [Michael Nygard](https://cognitect.com/blog/2011/11/15/documenting-architecture-decisions) (Context · Decision · Consequences). Per ARCHITECTURE.md, ADRs are append-only. This file is placed under `docs/desktop/` because #137's acceptance criteria name that path; ARCHITECTURE.md's ADR pointer says `docs/adr/`. That divergence is the ticket's call, not this ADR's to self-authorize — if you'd rather consolidate ADRs under `docs/adr/`, say so and I'll move it.
+>
+> **This revision (rev 2) corrects a material error in rev 1** flagged by an independent adversarial review: rev 1 claimed the web dashboard "already renders the Go design system." It does not (see Context §1). The data/logic reuse is real; the design-system *rendering* is net-new Go work. The recommendation is unchanged; its justification is now accurate.
 
 ---
 
 ## Context
 
-Malik decided (2026-06-09) that Kaimi gets a **desktop dashboard** for Windows and macOS, usable **offline** while working on proposals, alongside the existing web dashboard. Epic #136 is the handoff brief; this ADR is the design-eagerly gate that #136 requires before any scaffold code: choosing the wrong shell here is expensive to unwind once views and build/signing pipelines are built on top of it.
+Malik decided (2026-06-09) that Kaimi gets a **desktop dashboard** for Windows and macOS, usable **offline** while working on proposals, alongside the existing web dashboard. Epic #136 is the handoff brief; this ADR is the design-eagerly gate it requires before any scaffold code: choosing the wrong shell here is expensive to unwind once views and build/signing pipelines sit on top of it.
 
-This decision is **load-bearing because of what already exists in the repo**, not theoretical preferences. The facts that constrain the choice:
+**Phase note:** CLAUDE.md's current directive banner (2026-06-09) **retires the "Phase 0 only" scope lock** — the full pipeline is built and deployed, and "web + desktop dashboards in active development" is explicitly in scope, driving to the **Google AI Agents Challenge submission (June 11, 2026)**. So this desktop work is in-scope by directive; ARCHITECTURE.md's lingering "Phase 0 only" language is superseded by that banner. The June 11 horizon also shapes the recommendation: the realistic near-term deliverable is **read-only dashboard parity in a branded offline-capable shell**, not the full onboarding/editor product the design depicts.
 
-1. **The reuse surface is Go, and it is real.** The data layer and the dashboard's presentation logic are already implemented as importable Go packages:
-   - `internal/store` — the `Store` interface (`Save`/`Get`/`List`/`Delete`) with a file-backed `NewJSONStore(basePath)` implementation. Offline-first falls out of this for free: the store *is* a local JSON directory.
-   - `internal/opportunity` — the shared `Opportunity` schema (the single source of truth; must not be forked for desktop).
-   - `internal/dashboard` — `DeriveStage` (deterministic pipeline-stage derivation), `NewService(store)` → `List`/`Get`/`CountsByStage` view-model builders, **and the Kaimi design system rendered in Go**: `StyleTag()` (tokens + `ui.css` embedded verbatim, issue #132), plus `StatusBadge`/`RecommendationPill`/`DeadlinePill`/`FitRing`/`MetaTag` components and the `brand.go` Kai-wave assets (issue #126).
-   - The **web dashboard renders HTML server-side in Go** (`internal/dashboard/handler.go`, `cmd/dashboard/main.go`): `store.NewJSONStore(path)` → `dashboard.NewService(s)` → `dashboard.NewHandler(svc)`. There is no JavaScript frontend or build toolchain in the repo today.
+### What is actually reusable today (verified against the code)
 
-2. **The team is Go-centric, and "legible Go" is a hard requirement.** ARCHITECTURE.md and CLAUDE.md state it twice: two people review and learn from this code, one newer to Go. A desktop backend in a *different* language (Node for Electron, Rust for Tauri) splits the team's mental model and the review surface, and means the desktop's data/store/stage logic cannot be the same code that Zone 1 and the web dashboard already use — it would be a second implementation to keep in sync with `internal/*`.
+1. **Real, shipping reuse — data and view logic (Go):**
+   - `internal/store` — the `Store` interface (`Save`/`Get`/`List`/`Delete`, all `ctx`-aware) with a file-backed `NewJSONStore(basePath)`. Offline reads fall out of this: the store *is* a local JSON directory.
+   - `internal/opportunity` — the shared `Opportunity` schema (single source of truth; must not be forked for desktop).
+   - `internal/dashboard` — `DeriveStage` (deterministic stage derivation) and `NewService(store)` → `List`/`Get`. **The live web dashboard already uses these**: `cmd/dashboard/main.go`'s `handleOverview` calls `svc.List(...)` and groups by derived `Stage`. This is genuine, exercised reuse a desktop Go backend gets by importing the same package.
 
-3. **Single-binary distribution is an established repo principle.** ARCHITECTURE.md lists single-binary deployment as a reason Go was chosen.
+2. **Exists in Go but NOT yet wired into the live dashboard — the design system:**
+   - `StyleTag()` (tokens + `ui.css`, #132), `StatusBadge`/`RecommendationPill`/`DeadlinePill`/`FitRing`/`MetaTag`, and `brand.go`'s Kai-wave assets (#126) are implemented **and tested**, but **nothing renders them**: the live dashboard serves placeholder templates (`cmd/dashboard/templates/layout.html`/`overview.html`) and a second, inline `sans-serif` template in `internal/dashboard/handler.go` (mounted at `/opportunities`). A grep of `cmd/` and `handler.go` for `StyleTag`/the components returns **zero** uses. So adopting the design system is **pending Go work for the web dashboard too** (the known #125 placeholder-styling follow-up). The desktop does not "inherit" a styled UI for free — it would do that wiring in Go, and that work is **shared with**, not duplicated against, the web dashboard.
 
-4. **The design handoff recommends "Electron or Tauri."** `DESKTOP.md` and the bundle README say to target Electron or Tauri. **That recommendation was made without knowledge of the Go reuse thesis** — the design team assumed a greenfield JavaScript/React frontend (the prototypes are React-via-Babel). Their actual architectural intent is narrower and is what matters: *"the same three-surface app wrapped in a desktop shell"* — i.e. wrap the existing UI in an OS webview with a native window, custom title bar, keychain, and offline behavior. **Wails satisfies that intent exactly**, using the same OS webview approach as Tauri, but with a Go backend instead of Rust. So this ADR does not contradict the design intent; it selects the shell that realizes it while honoring constraints (1)–(3) the design team didn't have.
+3. **Two render paths exist** (`handleOverview` at `/` via embedded templates; `dashboard.NewHandler` at `/opportunities` via its own inline template). "Parity" must target the `Service`-backed data path (item 1), and ideally the two web renderers get consolidated as the Go design system is adopted. Desktop should not pick up the placeholder markup.
 
-5. **Offline-first is the product point**, but it is *client* offline, not pipeline offline. The nightly SAM.gov hunt and the live agent runs are server-side and stay online-only; the desktop lets a human read the synced queue, open proposals, **edit the working draft**, and make review-gate decisions offline, queuing those actions for replay on reconnect (DESKTOP.md). ARCHITECTURE.md currently lists "Offline/air-gapped operation" under *what the architecture does not do* — that bullet is about the **pipeline**, and must be reconciled (see the companion ARCHITECTURE.md update) so it is not read as forbidding this client.
+4. **No write path / offline queue exists yet.** `internal/dashboard.Service` is read-only by design (it never calls `Save`/`Delete`). The offline *writes* the product needs — draft edits, approve/request-changes queued for replay (DESKTOP.md) — have **no home in the current code** and are unbuilt. Offline-first is therefore "nearly free" **for reads only**; the durable action queue is load-bearing, net-new, and lands later (#140 is its design gate).
+
+### Team and distribution constraints
+
+5. **The team is Go-centric; "legible Go" is a hard requirement** (CLAUDE.md/ARCHITECTURE.md, twice): two people review and learn from this code, one newer to Go. A desktop backend in a *different* language (Node/Rust) splits the review surface and means the reusable Go logic (item 1) must be reached across a process/language boundary rather than imported.
+
+6. **Single-binary distribution is an established repo principle** (a stated reason Go was chosen).
+
+7. **The design handoff recommends "Electron or Tauri"** (`DESKTOP.md`, README). That guidance assumed a **greenfield JavaScript/React frontend** (the prototypes are React-via-Babel) and did **not** have the Go reuse context. The design's actual architectural intent is narrower and is what binds: *"the same three-surface app wrapped in a desktop shell"* — an OS-webview window with branded chrome, keychain, and offline behavior. **Wails satisfies that intent**, using the same OS-webview model as Tauri but with a Go backend.
+
+8. **Offline-first is a client property, not a pipeline property.** The nightly SAM.gov hunt and live agent runs stay online-only; "Select to pursue" needs the agent runtime and is disabled offline. ARCHITECTURE.md's "Offline/air-gapped operation" not-supported bullet is about the *pipeline* and is reconciled in the companion edit so it isn't read as forbidding this client.
 
 ---
 
 ## Decision
 
-**Adopt Wails v2 (Go) as the desktop shell.** The desktop app is a Go binary that imports `internal/store`, `internal/opportunity`, and `internal/dashboard` directly, wrapped in a frameless OS-webview window (WebView2 on Windows, WKWebView on macOS) with a custom branded title bar.
+**Adopt Wails v2 (Go) as the desktop shell.** The desktop app is a Go binary that imports `internal/store`, `internal/opportunity`, and `internal/dashboard` directly, wrapped in a frameless OS-webview window (WebView2 on Windows, WKWebView on macOS) with a custom branded title bar. Use the **stable v2 line**, not v3 (still pre-release — revisit in a later ADR; nothing here precludes a v2→v3 migration, though see the longevity risk below).
 
-Use the **current stable v2 line**, not v3 (still pre-release at time of writing — revisit in a later ADR when v3 is stable; nothing here precludes a v2→v3 migration).
+### Frontend strategy (the consequential sub-decision — decided now, not deferred)
 
-### Frontend strategy (the consequential sub-decision)
+The honest tension: the design's **showcase surfaces are unavoidably interactive** — a frameless draggable title bar with a live sync pill, a six-step stateful onboarding wizard, and a section-structured `contenteditable` draft editor with autosave (`desktop-onboarding.jsx`, `desktop-editor.jsx`). Server-rendered Go HTML with a meta-refresh **cannot** carry those. So the JS-frontend question is not deferrable in principle — what *is* legitimately deferrable is **building** those surfaces, because they are not in #138/#139 (read-only parity) and their backends (review gate, editor data model) are themselves later tickets.
 
-Render the **existing Go design system into the webview** rather than introducing a parallel JavaScript frontend on day one:
+Decision, in two tiers:
 
-- For the read-only parity views (#138 scaffold list, #139 overview / table / detail), the webview is served the **same Go-rendered HTML + `StyleTag()` design system** the web dashboard already produces. The React prototypes in the bundle are treated as the **visual spec**, exactly as the web dashboard treats them — not as code to port. This proves the reuse thesis end-to-end with zero duplicated tokens and no JS build toolchain.
-- **Fonts:** the web dashboard intentionally stays on the system font stack because it must not ship external assets (ux-spec.md "Technology Constraints"). A desktop app is precisely the *"surface that may ship external assets in later phases"* that ux-spec.md anticipates: it **bundles Figtree + IBM Plex Mono locally** (embedded, not fetched from Google Fonts — fetching would break offline) to reach the design's full type fidelity. One token source, one design system, an additive font layer on desktop.
-- **Defer a JS frontend until a ticket actually needs it.** The richer desktop-only surfaces in `DESKTOP.md` — the six-step onboarding flow, the section-structured offline draft editor, animated drawers — are *not in #138 or #139* (#139 explicitly excludes proposal editing / human-review actions; the editor is not yet ticketed). If/when those tickets land and server-rendered HTML is the wrong tool for that interactivity, introduce a Wails frontend (Vite + a small framework) **sharing `kaimi/tokens.css` (= the same values as `tokens.go`) as the single token source** — recorded in a follow-up ADR at that time. We do not build that ahead of need (provision lazily).
+- **Now (#138/#139 — read-only parity, the June-11 deliverable):** render the parity views from `internal/dashboard` (`Service` + `DeriveStage`) **and wire in the Go design system** (`StyleTag()` + components) — the same wiring the web dashboard still owes (#125). For static, read-only views this is straightforward server-rendered HTML inside the Wails webview, with **Figtree + IBM Plex Mono bundled locally** (embedded, not fetched from Google Fonts — fetching breaks offline; ux-spec.md explicitly anticipates desktop as the "surface that may ship external assets"). Minimal new tech, maximal Go reuse, demoable fast.
+- **Later (onboarding, the offline editor — separate tickets, post-submission):** these get a **Wails Vite frontend** (a small JS framework) that calls the Go backend via Wails bindings and **shares `kaimi/tokens.css` (= the same values as `tokens.go`) as the single token source.** Recorded in a follow-up ADR when those tickets exist. Choosing Wails does **not** lock us out of a JS frontend — Wails' normal mode *is* a JS frontend; we simply aren't standing one up before it's needed.
 
-This keeps #138/#139 minimal and maximally reuse-driven while leaving a clean seam for the interactive offline editor later.
+### Out of scope for this ADR
 
-### Out of scope for this ADR (and this ticket)
-
-Scaffold code, UI work, installers, code-signing/notarization setup, and the local↔GCS sync design (#140) are explicitly *not* decided or built here. This ADR only fixes the shell and the frontend strategy.
+Scaffold code, UI work, the durable offline queue, keychain/OAuth integration, installers, code-signing/notarization, auto-update wiring, and the local↔GCS sync design (#140). This ADR fixes only the shell and the two-tier frontend strategy, and surfaces the risks the shell must be able to discharge (below).
 
 ---
 
 ## Options considered
 
-| Criterion (weight) | **Wails v2 (Go)** | Tauri (Rust) | Electron (Node) |
-|---|---|---|---|
-| **Reuse of `internal/store`, `internal/dashboard`, `internal/opportunity` (highest)** | ✅ Direct `import` — same code as Zone 1 & web dashboard; zero logic duplication | ❌ Rust backend cannot import Go; needs a Go sidecar process or a reimplementation | ❌ Node backend cannot import Go; needs a Go sidecar process or a reimplementation |
-| **Team language / "legible Go" (high)** | ✅ Backend is Go, the language the team builds everything in | ❌ Adds Rust — new language for a two-person Go-learning team | ⚠️ Adds Node/JS main process — more familiar than Rust, still a second runtime |
-| **Offline-first JSON store (high)** | ✅ `NewJSONStore(localPath)` read directly in-process | ⚠️ Via sidecar or a Rust re-read of the JSON | ⚠️ Via sidecar or a Node re-read of the JSON |
-| **Shares the existing design system** | ✅ Renders `StyleTag()` + Go components verbatim; `tokens.css` available if a JS layer is later added | ⚠️ Would consume `tokens.css`; backend logic still not shared | ⚠️ Same as Tauri |
-| **Single-binary distribution (repo principle)** | ✅ One Go binary, assets embedded | ✅ Small native binary (+ webview) | ❌ Ships a full Chromium (~100–150 MB) |
-| **Windows + macOS webview** | ✅ WebView2 (Win) / WKWebView (mac) | ✅ WebView2 / WKWebView (same model) | ✅ Bundled Chromium (no OS webview dependency) |
-| **Ecosystem maturity (medium)** | ⚠️ Smaller ecosystem than Electron; v2 stable, v3 pre-release | ⚠️ Maturing; large Rust ecosystem but smaller desktop-app community than Electron | ✅ Largest, most mature desktop ecosystem |
-| **Distribution friction (signing/notarization)** | ⚠️ macOS Developer-ID signing + notarization required (Apple tax, framework-independent); Windows WebView2 runtime dependency | ⚠️ Same macOS tax; same WebView2 dependency | ⚠️ Same macOS tax; no webview runtime dependency, but largest download |
+Weights reflect Kaimi's constraints (reuse + team language dominate).
+
+| Criterion (weight) | **Wails v2 (Go)** | Tauri (Rust) | Electron (Node) | Any shell + local Go HTTP server |
+|---|---|---|---|---|
+| Reuse `store`/`opportunity`/`dashboard` **logic** (high) | ✅ direct in-process import | ❌ Rust can't import Go | ❌ Node can't import Go | ✅ via localhost to the existing Go server |
+| Team language / "legible Go" (high) | ✅ Go backend | ❌ adds Rust | ⚠️ adds Node | ⚠️ shell still Rust/Node + a Go server to supervise |
+| Offline JSON-store **reads** (high) | ✅ in-process | ⚠️ sidecar/re-impl | ⚠️ sidecar/re-impl | ✅ server reads it |
+| Single binary (repo principle) | ✅ one Go binary | ✅ small native binary | ❌ bundled Chromium (~100–150 MB) | ❌ ships shell **+** a second Go process |
+| Interactive surfaces (onboarding/editor) | ⚠️ Wails Vite frontend (later) | ✅ JS frontend native | ✅ JS frontend native, biggest ecosystem | depends on shell |
+| Ecosystem / auto-update / keychain plugins (medium→high for 2-person team) | ⚠️ thinner; more hand-rolled | ⚠️ maturing; built-in updater | ✅ most mature (electron-updater, etc.) | n/a (shell-dependent) |
+| Process model / ops simplicity | ✅ single process | ✅ single process | ✅ single process | ❌ two processes, port mgmt, lifecycle/IPC |
 
 ### Why not Tauri
-Tauri is the closest technical analogue (OS webview, small binary) and is a fine choice for a JS-frontend team. But its backend is **Rust**, which the Go reuse thesis and the "legible Go" requirement rule out: it cannot import `internal/*`, so the desktop's store/stage/view logic would either be a Rust reimplementation (a second source of truth to keep in sync — the exact drift ARCHITECTURE.md warns about) or a Go sidecar process bolted onto a Rust shell (more moving parts than Wails, with none of the reuse benefit Wails gives natively).
+Closest technical analogue (OS webview, small binary) and a fine pick for a JS-frontend team. But its **Rust** backend can't import `internal/*`, so the reusable Go logic must be re-implemented in Rust (a second source of truth — the drift ARCHITECTURE.md warns against) or reached via a Go sidecar (extra process). Either way the "legible Go" advantage is lost. Tauri's built-in updater is a genuine point in its favor (see risks).
 
 ### Why not Electron
-Electron's ecosystem maturity is its real advantage, and Node is more approachable than Rust. But it still cannot reuse the Go packages, adds a second runtime/language to a Go-learning team, and ships a full Chromium per app — directly against the single-binary principle. Its one genuine edge (no OS-webview runtime dependency) does not outweigh losing the reuse thesis that motivates the whole desktop effort.
+Most mature ecosystem and the strongest auto-update/keychain story, and Node is more approachable than Rust. But it can't reuse the Go packages, adds a second runtime to a Go-learning team, and ships a full Chromium per app — against the single-binary principle.
+
+### Why not "any shell + local Go HTTP server" (the strongest counter to the reuse thesis)
+This is the honest rebuttal to "only Wails reuses Go": the dashboard **already is** an HTTP server, so an Electron/Tauri shell could point a webview at a localhost Go process and reuse *all* the Go logic too. True — and it shows the reuse advantage is about **how**, not **whether**. Wails' edge over this is operational: **one process, one binary, no port allocation/collision handling, no second-process lifecycle/crash-supervision, no IPC/CORS surface** — and the shell glue is Go, the team's language. For a two-person team on a tight timeline, collapsing the sidecar into the shell is the meaningful win. (Note: even Wails runs an internal asset/bindings bridge — but we don't own or operate it as a separate process.) This option stays on the table as the fallback if Wails' interactive-frontend or distribution story disappoints.
 
 ---
 
-## Honest trade-offs of choosing Wails v2
+## Risks the shell must be able to discharge (raised by adversarial review)
 
-- **Smaller ecosystem than Electron.** Fewer plugins, fewer Stack Overflow answers, fewer prebuilt solutions for auto-update/installers. Mitigation: our scope is narrow (a read/review client), and the heavy lifting is in Go packages we own.
-- **WebView2 runtime dependency on Windows.** Wails relies on the Evergreen WebView2 runtime. It ships by default on Windows 11 (the dev/target machine) and on current Windows 10; for older machines a bootstrapper can be bundled. Document it in the build instructions (#138).
-- **Webview rendering quirks.** WebView2 (Chromium-based) and WKWebView (Safari/WebKit) are different engines, so CSS/JS can diverge slightly across OSes — the same cross-engine caveat Tauri has. Because our parity views are server-rendered HTML with a constrained, already-shipping CSS design system, exposure is low; test both engines in #139's QA script.
-- **macOS code-signing & notarization.** Distributing outside a dev machine requires an Apple Developer ID, signing, and notarization. This is an Apple platform tax independent of framework choice (Tauri and Electron pay it too). It is **not** a scaffold concern — flag it for a dedicated distribution ticket; #138 only needs a local Windows build with the macOS target *configured*.
-- **v2 vs v3.** Wails v3 is in pre-release; choosing v2 means a future migration is possible. v2 is stable and actively maintained; we accept this deliberately and will revisit via a new ADR when v3 is stable.
-- **Frontend ceiling for rich interactions.** Server-rendered HTML is the right tool for the read-only parity views but will likely be the wrong tool for the offline editor's section-structured, click-to-edit, autosaving surface. We accept that and have left an explicit seam: a Wails JS frontend sharing `tokens.css`, decided in a follow-up ADR when that ticket exists. Choosing Wails does **not** lock us out of a JS frontend — Wails' normal mode *is* a JS frontend; we are simply not adopting one before it's needed.
+These are **not** built in #138/#139, but the shell choice is only valid if it can carry them. Wails can, with more hand-rolling than Electron:
+
+- **OS keychain for secrets (security-sensitive — flagged per CLAUDE.md).** `DESKTOP.md` hard-requires storing OAuth tokens **and** the Kaimi license key in Keychain/Credential Manager, never plaintext. Wails has **no built-in keychain API**; this needs a CGo-based library (e.g. `github.com/zalando/go-keyring`) added per the dependency rule, with notarization/entitlement implications on macOS. Must be its own security-reviewed ticket.
+- **Durable offline action queue.** Must survive quit/reopen (DESKTOP.md). No write/queue primitive exists today (`Service` is read-only). This is the load-bearing offline component; #140 designs it.
+- **OAuth via the system browser** (loopback redirect). Wails supports it but it's hand-rolled (local listener + redirect handling). Deferred with onboarding.
+- **Auto-update.** Wails v2 has **no first-class updater** (unlike Electron's electron-updater or Tauri's built-in updater). For a licensed app shipped to a customer org this is not optional long-term; budget a dedicated solution (e.g. a self-hosted update feed) or treat it as a known gap. **This is the strongest single argument for Electron/Tauri** and is accepted with eyes open.
+- **WebView2 ↔ WKWebView engine divergence** for the *interactive* surfaces (drawers, `contenteditable`, `-webkit-app-region`). Low exposure for the read-only parity views; real for the later editor — test both engines.
 
 ---
 
 ## Dependency justification (per CLAUDE.md dependency rule)
 
-Adopting Wails v2 introduces the `github.com/wailsapp/wails/v2` Go module and its build CLI.
+Adopting Wails v2 introduces `github.com/wailsapp/wails/v2` (Go module + build CLI).
 
-- **Why a dependency at all / why not stdlib:** there is no stdlib path to a native OS window hosting a webview with `-webkit-app-region` drag regions, frameless chrome, and native menus. The realistic options are all third-party desktop frameworks; this ADR selects among them.
-- **Why this one:** it is the only mainstream option whose backend is Go, which is the entire reason it wins (direct reuse of `internal/*`, single Go binary, team language). It replaces *more* potential dependencies than it adds — no Node/Rust toolchain, no sidecar IPC layer, no second design-token/store implementation.
-- **Pinning:** `go get github.com/wailsapp/wails/v2@<latest-stable-v2>` then `go mod tidy`, with the exact version recorded on #138 when scaffolding actually adds it (this ticket adds **no** code, so the dependency is not yet added to `go.mod`).
-- **Transitive footprint:** Wails pulls webview bindings and a small set of build/runtime deps; the scaffold ticket will report the resulting `go.mod`/`go.sum` delta for review.
-- **CONVENTIONS.md note:** the repo's CLAUDE.md references a CONVENTIONS.md that is **not present in the tree**. Per CLAUDE.md's "new pattern → update CONVENTIONS.md" rule, the desktop scaffold (#138) introduces a new top-level pattern (`cmd/desktop` + a Wails project layout); that ticket should either restore/extend CONVENTIONS.md or, until it exists, document the layout decision in `docs/desktop/`. Flagged here so it isn't silently skipped.
+- **Why a dependency at all / why not stdlib:** there is no stdlib path to a native OS window hosting a webview with frameless chrome, drag regions, and native menus. The realistic options are all third-party desktop frameworks; this ADR selects among them.
+- **Why this one:** it is the only mainstream option whose backend is **Go**, which is why it wins on reuse-in-process, single binary, and team language. It avoids a Node/Rust toolchain and a supervised sidecar process.
+- **Pinning:** added in **#138**, not here — this ticket is code-free. #138 runs `go get github.com/wailsapp/wails/v2@<latest-stable-v2>` then `go mod tidy`, records the exact version on that ticket, and reports the `go.mod`/`go.sum` delta. **Anticipated companion deps** (later tickets, justified then): a keychain library (`go-keyring` or equivalent) and, eventually, an update mechanism.
+- **CONVENTIONS.md gap:** CLAUDE.md references a `CONVENTIONS.md` that is **absent from the tree**. The desktop scaffold (#138) introduces a new top-level layout (`cmd/desktop` + a Wails project); per CLAUDE.md's "new pattern → update CONVENTIONS.md" rule, #138 should restore/extend CONVENTIONS.md or document the layout in `docs/desktop/` until it exists.
 
 ---
 
 ## Consequences
 
 **Positive**
-- The reuse thesis is proven structurally: the desktop imports the same store, schema, stage-derivation, view-models, and design system as the web dashboard. No fork of the `Opportunity` schema, no second design-token copy, no duplicated stage logic.
-- Offline-first is nearly free: the local JSON store is the device source of truth; `internal/dashboard` is already read-only against the `Store` interface.
-- One language for the whole system keeps the two-person team's review surface and mental model intact.
-- A single Go binary per OS, consistent with ARCHITECTURE.md.
+- The **logic** reuse is proven and exercised: desktop imports the same `Store`, `Opportunity`, `Service`, and `DeriveStage` the live web dashboard runs on. No schema fork, no second stage-derivation, no duplicated store access.
+- Adopting the Go design system on desktop is the **same work the web dashboard still owes** (#125) — done once in Go, shared, not duplicated.
+- Offline **reads** are nearly free (local JSON store + read-only `Service`).
+- One language for the whole system; a single Go binary per OS.
+- Fastest credible path to a branded, offline-capable read-only desktop dashboard for the June 11 submission.
 
 **Negative / accepted**
-- We take on Wails' smaller ecosystem, the WebView2 runtime dependency, cross-engine webview testing, and (for real distribution) the macOS notarization tax.
-- The offline draft editor will likely require a JS frontend later; we have scoped that out and left a clean seam rather than building it now.
+- The design system is **not yet rendered anywhere**; desktop parity includes writing that Go rendering layer (shared with web, but real work — don't bill it as free).
+- The interactive showcase surfaces (onboarding, offline editor) require a **Wails Vite frontend later** (follow-up ADR) and are not in this window.
+- Wails carries a thinner ecosystem, a hand-rolled **keychain** path, a **WebView2 runtime** dependency on Windows, cross-engine testing, the macOS **notarization** tax (framework-independent), and — most pointedly — **no first-class auto-update**. We accept these; auto-update and keychain get dedicated tickets.
+- **Longevity:** Wails v2 maintenance will taper as v3 matures; starting a multi-year app on a soon-legacy major version is a real (accepted) risk, mitigated by v3 being a migration, not a rewrite, and by the fallback "local Go server + any shell" option.
 
 **Follow-ups this unblocks / requires**
-- ARCHITECTURE.md updated in the same change set: desktop client added to the component map with its phase; the offline-first-but-pipeline-online distinction recorded; the "Offline/air-gapped operation" not-supported bullet clarified; ADR-001 referenced.
-- #138 may proceed **only after Malik approves this ADR on #137.** #138 adds the Wails dependency (with the pinned version on the ticket), `cmd/desktop` with a `doc.go`, boots a window on Windows, reads a local store via `internal/store`, and lists opportunities with `internal/dashboard.DeriveStage`.
-- A future ADR will decide the JS-frontend question if/when the offline editor / onboarding tickets require it.
-- #140 (local↔GCS sync) remains design-only and unaffected by this shell choice.
+- ARCHITECTURE.md updated in the same change set: desktop client added to the component map; client-offline-vs-pipeline-online distinction recorded; stale `Store` signature corrected; "Offline/air-gapped" bullet clarified; ADR-001 referenced.
+- #138 proceeds **only after Malik approves this ADR on #137**: adds the Wails dep (pinned, on the ticket), `cmd/desktop` + `doc.go`, boots a window on Windows, reads a local store via `internal/store`, lists opportunities via `internal/dashboard.DeriveStage`. **Scope it to read-only parity of existing views.**
+- A future ADR decides the Wails Vite frontend when the onboarding/editor tickets land. Keychain, durable offline queue (#140), and auto-update are their own tickets.
