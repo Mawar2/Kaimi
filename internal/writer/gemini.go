@@ -34,6 +34,29 @@ func NewGeminiGenerator(ctx context.Context, projectID, location, modelName stri
 	return &GeminiGenerator{client: client, modelName: modelName}, nil
 }
 
+// Output-budget sizing for a section draft. gemini-2.5-pro is a thinking model:
+// its reasoning tokens are billed against MaxOutputTokens, so the old 2048 cap
+// was consumed by thinking and the longest sections truncated mid-sentence (see
+// issue #192). We raise the cap and bound the thinking budget so reasoning can
+// never starve the prose. Values are generous, tunable headroom.
+const (
+	maxSectionOutputTokens = 8192
+	sectionThinkingBudget  = 2048
+)
+
+// sectionGenerateConfig builds the Gemini config for one section draft, with
+// thinking-token headroom (see #192) and the anti-fabrication system instruction.
+func sectionGenerateConfig(systemInstruction string) *genai.GenerateContentConfig {
+	temp := float32(0.3) // low temperature: grounded, consistent prose
+	budget := int32(sectionThinkingBudget)
+	return &genai.GenerateContentConfig{
+		Temperature:       &temp,
+		MaxOutputTokens:   maxSectionOutputTokens,
+		SystemInstruction: genai.NewContentFromText(systemInstruction, genai.RoleUser),
+		ThinkingConfig:    &genai.ThinkingConfig{ThinkingBudget: &budget},
+	}
+}
+
 // GenerateSection implements Generator using Gemini via Vertex AI.
 //
 // The anti-fabrication rules are passed as a system instruction (not in the user
@@ -43,13 +66,7 @@ func (g *GeminiGenerator) GenerateSection(ctx context.Context, systemInstruction
 		genai.NewContentFromText(prompt, genai.RoleUser),
 	}
 
-	temp := float32(0.3) // low temperature: grounded, consistent prose
-	maxTokens := int32(2048)
-	config := &genai.GenerateContentConfig{
-		Temperature:       &temp,
-		MaxOutputTokens:   maxTokens,
-		SystemInstruction: genai.NewContentFromText(systemInstruction, genai.RoleUser),
-	}
+	config := sectionGenerateConfig(systemInstruction)
 
 	resp, err := g.client.Models.GenerateContent(ctx, g.modelName, contents, config)
 	if err != nil {
