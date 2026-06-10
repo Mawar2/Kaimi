@@ -25,6 +25,7 @@ type Handler struct {
 	listTmpl      *template.Template
 	detailTmpl    *template.Template
 	proposalsTmpl *template.Template
+	submittedTmpl *template.Template
 	workspaceTmpl *template.Template
 	notFoundTmpl  *template.Template
 	Now           func() time.Time
@@ -63,6 +64,7 @@ func (h *Handler) setupRoutes() {
 	// instead of falling through to the catch-all list route.
 	h.mux.HandleFunc("/opportunity/{id}/select", postOnly(h.handleSelect))
 	h.mux.HandleFunc("GET /proposals", h.handleProposals)
+	h.mux.HandleFunc("GET /submitted", h.handleSubmitted)
 	h.mux.HandleFunc("GET /workspace/{id}", h.handleWorkspace)
 	h.mux.HandleFunc("/workspace/{id}/section/{sid}", postOnly(h.handleSectionSave))
 	h.mux.HandleFunc("/workspace/{id}/approve", postOnly(h.handleAction("approve")))
@@ -136,6 +138,11 @@ const shellTmpl = `
         ` + iconProps + `
         <span>Proposals</span>
         {{if gt .NeedsCount 0}}<span class="needs">{{.NeedsCount}}</span>{{else}}<span class="count">{{.ActiveCount}}</span>{{end}}
+      </a>
+      <a class="nav-item{{if eq .ActiveNav "submitted"}} on{{end}}" href="/submitted">
+        <svg viewBox="0 0 24 24" fill="none"><path d="M3 7h18v3.2H3zM5 10.2V19a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1v-8.8M9.5 14h5" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
+        <span>Submitted</span>
+        {{if gt .SubmittedCount 0}}<span class="count">{{.SubmittedCount}}</span>{{end}}
       </a>
       <div class="spacer"></div>
       <div class="me">
@@ -386,6 +393,8 @@ func (h *Handler) setupTemplates() {
 		template.New("detail").Funcs(funcMap).Parse(shellTmpl)).Parse(detailContentTmpl))
 	h.proposalsTmpl = template.Must(template.Must(
 		template.New("proposals").Funcs(funcMap).Parse(shellTmpl)).Parse(proposalsContentTmpl))
+	h.submittedTmpl = template.Must(template.Must(
+		template.New("submitted").Funcs(funcMap).Parse(shellTmpl)).Parse(submittedContentTmpl))
 	h.workspaceTmpl = template.Must(template.Must(
 		template.New("workspace").Funcs(funcMap).Parse(shellTmpl)).Parse(workspaceContentTmpl))
 	h.notFoundTmpl = template.Must(template.New("notfound").Funcs(funcMap).Parse(notFoundTmplStr))
@@ -397,11 +406,12 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 
 // shellData carries what the app shell (sidebar) needs on every page.
 type shellData struct {
-	PageTitle   string
-	ActiveNav   string // "opps" highlights the Opportunities nav item
-	QueueCount  int    // total opportunities in the queue
-	NeedsCount  int    // opportunities awaiting human review (amber badge)
-	ActiveCount int    // opportunities selected into proposal work
+	PageTitle      string
+	ActiveNav      string // "opps" highlights the Opportunities nav item
+	QueueCount     int    // total opportunities in the queue
+	NeedsCount     int    // opportunities awaiting human review (amber badge)
+	ActiveCount    int    // opportunities selected into proposal work
+	SubmittedCount int    // proposals submitted to SAM.gov (Submitted archive)
 }
 
 // OverviewData is the view-model for the Triage screen.
@@ -519,6 +529,8 @@ func (h *Handler) handleList(w http.ResponseWriter, r *http.Request) {
 			data.ActiveCount++
 		case StageSelected, StageInProposal, StageFinalized:
 			data.ActiveCount++
+		case StageSubmitted:
+			data.SubmittedCount++
 		}
 	}
 	for i := range rows {
