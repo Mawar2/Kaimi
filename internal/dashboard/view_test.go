@@ -367,3 +367,47 @@ func TestService_Get(t *testing.T) {
 		}
 	})
 }
+
+// TestListFilterByRecommendation covers the segmented filter contract from
+// issue #150: All / To pursue (BID) / Needs review (REVIEW).
+func TestListFilterByRecommendation(t *testing.T) {
+	ctx := context.Background()
+	s := newTestStore(t)
+	now := time.Date(2026, 6, 10, 12, 0, 0, 0, time.UTC)
+	seed := []opportunity.Opportunity{
+		{ID: "r-bid", Title: "Bid Opp", Recommendation: "BID", Score: 0.9, ScoredAt: &now, UpdatedAt: now},
+		{ID: "r-rev", Title: "Review Opp", Recommendation: "REVIEW", Score: 0.5, ScoredAt: &now, UpdatedAt: now},
+		{ID: "r-no", Title: "NoBid Opp", Recommendation: "NO_BID", Score: 0.1, ScoredAt: &now, UpdatedAt: now},
+		{ID: "r-raw", Title: "Unscored Opp", UpdatedAt: now},
+	}
+	for i := range seed {
+		if err := s.Save(ctx, &seed[i]); err != nil {
+			t.Fatalf("seed: %v", err)
+		}
+	}
+	svc := dashboard.NewService(s)
+
+	bid, err := svc.List(ctx, dashboard.ListOptions{Recommendation: "BID"})
+	if err != nil {
+		t.Fatalf("List(BID): %v", err)
+	}
+	if len(bid) != 1 || bid[0].ID != "r-bid" {
+		t.Errorf("List(BID) = %v, want only r-bid", bid)
+	}
+
+	review, err := svc.List(ctx, dashboard.ListOptions{Recommendation: "REVIEW"})
+	if err != nil {
+		t.Fatalf("List(REVIEW): %v", err)
+	}
+	if len(review) != 1 || review[0].ID != "r-rev" {
+		t.Errorf("List(REVIEW) = %v, want only r-rev", review)
+	}
+
+	all, err := svc.List(ctx, dashboard.ListOptions{})
+	if err != nil {
+		t.Fatalf("List(all): %v", err)
+	}
+	if len(all) != 4 {
+		t.Errorf("List(all) returned %d rows, want 4 (empty filter is no filter)", len(all))
+	}
+}

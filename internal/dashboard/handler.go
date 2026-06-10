@@ -1,33 +1,55 @@
 package dashboard
 
 import (
+	"errors"
 	"fmt"
 	"html/template"
 	"math"
 	"net/http"
 	"regexp"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/Mawar2/Kaimi/internal/opportunity"
+	"github.com/Mawar2/Kaimi/internal/proposal"
+	"github.com/Mawar2/Kaimi/internal/store"
 )
 
-// Handler wraps the dashboard service and manages HTTP routing.
+// Handler wraps the dashboard service and manages HTTP routing. Pages render
+// the designed app surface from the design handoff (Kaimi App.html /
+// kaimi/app.css, GitHub issue #150): an app shell with sidebar, the Triage
+// opportunities screen, and the drawer-style opportunity detail.
 type Handler struct {
-	svc          *Service
-	mux          *http.ServeMux
-	tmpl         *template.Template
-	detailTmpl   *template.Template
-	notFoundTmpl *template.Template
-	Now          func() time.Time
+	svc           *Service
+	proposals     *proposal.Service // nil = read-only deployment
+	mux           *http.ServeMux
+	listTmpl      *template.Template
+	detailTmpl    *template.Template
+	proposalsTmpl *template.Template
+	workspaceTmpl *template.Template
+	notFoundTmpl  *template.Template
+	Now           func() time.Time
+}
+
+// Option configures optional Handler capabilities.
+type Option func(*Handler)
+
+// WithProposals enables the Zone 2 surfaces (select, proposals view,
+// workspace, gate actions) backed by the shared proposal lifecycle service.
+func WithProposals(svc *proposal.Service) Option {
+	return func(h *Handler) { h.proposals = svc }
 }
 
 // NewHandler initializes a new dashboard handler.
-func NewHandler(svc *Service) *Handler {
+func NewHandler(svc *Service, opts ...Option) *Handler {
 	h := &Handler{
 		svc: svc,
 		mux: http.NewServeMux(),
 		Now: time.Now,
+	}
+	for _, opt := range opts {
+		opt(h)
 	}
 	h.setupRoutes()
 	h.setupTemplates()
@@ -37,13 +59,54 @@ func NewHandler(svc *Service) *Handler {
 func (h *Handler) setupRoutes() {
 	h.mux.HandleFunc("/", h.handleList)
 	h.mux.HandleFunc("GET /opportunity/{id}", h.handleDetail)
+	// Zone 2 surfaces (issue #156): the bridge event, the command view,
+	// the workspace, and the gate actions. Action routes are registered
+	// method-agnostic with an explicit guard so a stray GET gets a 405
+	// instead of falling through to the catch-all list route.
+	h.mux.HandleFunc("/opportunity/{id}/select", postOnly(h.handleSelect))
+	h.mux.HandleFunc("GET /proposals", h.handleProposals)
+	h.mux.HandleFunc("GET /workspace/{id}", h.handleWorkspace)
+	h.mux.HandleFunc("/workspace/{id}/section/{sid}", postOnly(h.handleSectionSave))
+	h.mux.HandleFunc("/workspace/{id}/approve", postOnly(h.handleAction("approve")))
+	h.mux.HandleFunc("/workspace/{id}/changes", postOnly(h.handleAction("changes")))
+	h.mux.HandleFunc("/workspace/{id}/submit", postOnly(h.handleAction("submit")))
 }
 
-func (h *Handler) setupTemplates() {
-	// For now, we'll use a string template for simplicity,
-	// but in a real project we'd load from files.
-	// We'll follow the ux-spec.md for the layout.
-	const layoutTmpl = `
+// postOnly rejects every method but POST on human-action routes.
+func postOnly(next http.HandlerFunc) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPost {
+			http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+			return
+		}
+		next(w, r)
+	}
+}
+
+// Inline SVG icons from the design handoff (app-screens.jsx /
+// lifecycle-components.jsx). All stroke-based, currentColor.
+const (
+	iconQueue   = `<svg viewBox="0 0 24 24" fill="none"><path d="M4 6h16M4 12h16M4 18h10" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>`
+	iconProps   = `<svg viewBox="0 0 24 24" fill="none"><rect x="3" y="4" width="18" height="6" rx="2" stroke="currentColor" stroke-width="2"/><rect x="3" y="14" width="18" height="6" rx="2" stroke="currentColor" stroke-width="2"/></svg>`
+	iconSearch  = `<svg viewBox="0 0 24 24" fill="none"><circle cx="11" cy="11" r="7" stroke="currentColor" stroke-width="2"/><path d="M16 16l4 4" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>`
+	iconSliders = `<svg viewBox="0 0 24 24" fill="none"><path d="M4 8h10M18 8h2M4 16h2M10 16h10" stroke="currentColor" stroke-width="2" stroke-linecap="round"/><circle cx="16" cy="8" r="2.4" stroke="currentColor" stroke-width="2"/><circle cx="8" cy="16" r="2.4" stroke="currentColor" stroke-width="2"/></svg>`
+	iconChev    = `<svg viewBox="0 0 24 24" fill="none"><path d="M9 6l6 6-6 6" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>`
+	iconBack    = `<svg viewBox="0 0 24 24" fill="none"><path d="M19 12H5M11 18l-6-6 6-6" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/></svg>`
+	iconCheck   = `<svg viewBox="0 0 24 24" fill="none"><path d="M5 13l4 4L19 7" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"/></svg>`
+	iconWarn    = `<svg viewBox="0 0 24 24" fill="none"><path d="M12 4l9 16H3z" stroke="currentColor" stroke-width="1.9" stroke-linejoin="round"/><path d="M12 10v4M12 17v.01" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>`
+	iconLink    = `<svg viewBox="0 0 24 24" fill="none"><path d="M10 14a4 4 0 0 0 5.7 0l2.3-2.3a4 4 0 1 0-5.7-5.7L11 7.3M14 10a4 4 0 0 0-5.7 0L6 12.3a4 4 0 1 0 5.7 5.7l1.3-1.3" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg>`
+)
+
+// sidebarMarkSVG is the 22px Kai wave mark inside the sidebar's navy gradient
+// logo tile, verbatim from the design handoff sidebar.
+const sidebarMarkSVG = `<svg width="22" height="22" viewBox="0 0 64 64" fill="none"><circle cx="45" cy="19" r="7" fill="#22D3EE"/><path d="M9 38C17 28 24 28 31 38C38 48 45 48 53 38" stroke="#67E0F4" stroke-width="5.4" stroke-linecap="round"/><path d="M9 48C17 38 24 38 31 48C38 58 45 58 53 48" stroke="#fff" stroke-width="5.4" stroke-linecap="round" opacity="0.9"/></svg>`
+
+// shellTmpl is the shared app shell (design handoff "App Structure"): CSS
+// grid with the fixed sidebar and the main column. Page content is supplied
+// by a per-page "content" template. The small inline style block holds only
+// link resets the prototype did not need (it used buttons + JS routing; we
+// use real anchors and GET forms).
+const shellTmpl = `
 <!DOCTYPE html>
 <html lang="en">
 <head>
@@ -53,162 +116,186 @@ func (h *Handler) setupTemplates() {
   {{faviconLink}}
   {{styleTag}}
   <style>
-    /* Page-specific rules only; all visual values come from the design-system
-       tokens emitted by styleTag (docs/dashboard/ux-spec.md, issue #141). */
-    body { margin: 1rem 2rem; }
-    table { border-collapse: collapse; width: 100%; background: var(--surface); }
-    th, td { border: 1px solid var(--border); padding: 0.4rem 0.6rem; text-align: left; }
-    th { background: var(--surface-2); }
-    tr:nth-child(even) { background: var(--surface-2); }
-    .stage-cards { display: flex; gap: 1rem; flex-wrap: wrap; margin-bottom: 1.5rem; }
-    .stage-card { background: var(--surface); border: 1px solid var(--border); border-radius: var(--r-sm); padding: 0.75rem 1rem; min-width: 120px; }
-    .stage-card .count { font-size: 2rem; font-weight: bold; font-family: var(--font-mono); }
-    .stage-card-alert { background: var(--st-human-bg); border-color: var(--st-human); }
-    .deadline-soon { background: var(--st-failed-bg); color: var(--st-failed); font-weight: bold; }
-    .filter-bar { margin-bottom: 0.75rem; font-size: 0.9rem; color: var(--ink-3); }
-    a { color: var(--primary); }
+    a.nav-item, a.orow, a.artifact2 { text-decoration: none; color: inherit; }
+    a.orow { display: flex; }
+    .seg form { display: contents; }
   </style>
 </head>
 <body>
-  {{headerLockup}}
-  <div class="stage-cards">
-    {{range .Cards}}
-    <div class="stage-card {{if .Alert}}stage-card-alert{{end}}">
-      <div class="label">{{.Label}}</div>
-      <div class="count">{{.Count}}</div>
-    </div>
-    {{end}}
+  <div class="app">
+    <aside class="side">
+      <div class="logo">
+        <div class="mk">` + sidebarMarkSVG + `</div>
+        <div class="nm">Kaimi<small>the seeker</small></div>
+      </div>
+      <div class="nav-h">Pipeline</div>
+      <a class="nav-item{{if eq .ActiveNav "opps"}} on{{end}}" href="/">
+        ` + iconQueue + `
+        <span>Opportunities</span>
+        <span class="count">{{.QueueCount}}</span>
+      </a>
+      <a class="nav-item{{if eq .ActiveNav "proposals"}} on{{end}}" href="/proposals">
+        ` + iconProps + `
+        <span>Proposals</span>
+        {{if gt .NeedsCount 0}}<span class="needs">{{.NeedsCount}}</span>{{else}}<span class="count">{{.ActiveCount}}</span>{{end}}
+      </a>
+      <div class="spacer"></div>
+      <div class="me">
+        <div class="av">BM</div>
+        <div class="who"><b>BlueMeta BD</b><span>Captures team</span></div>
+      </div>
+    </aside>
+    <main class="main">
+      {{template "content" .}}
+    </main>
   </div>
-
-  <div class="filter-bar">
-    <form method="GET" action="/opportunities">
-      <label for="stage">Stage:</label>
-      <select name="stage" id="stage">
-        <option value="">All</option>
-        <option value="Hunted" {{if eq .ActiveStage "Hunted"}}selected{{end}}>Hunted</option>
-        <option value="Scored" {{if eq .ActiveStage "Scored"}}selected{{end}}>Scored</option>
-        <option value="Selected" {{if eq .ActiveStage "Selected"}}selected{{end}}>Selected</option>
-        <option value="In Proposal" {{if eq .ActiveStage "In Proposal"}}selected{{end}}>In Proposal</option>
-        <option value="Awaiting Human Review" {{if eq .ActiveStage "Awaiting Human Review"}}selected{{end}}>Awaiting Human Review</option>
-        <option value="Finalized" {{if eq .ActiveStage "Finalized"}}selected{{end}}>Finalized</option>
-      </select>
-
-      <label for="minScore">Min Score:</label>
-      <input type="number" name="minScore" id="minScore" step="0.1" min="0" max="1" value="{{.ActiveMinScore}}">
-
-      <label for="sort">Sort:</label>
-      <select name="sort" id="sort">
-        <option value="deadline" {{if eq .ActiveSort "deadline"}}selected{{end}}>Deadline</option>
-        <option value="score" {{if eq .ActiveSort "score"}}selected{{end}}>Score</option>
-      </select>
-
-      <button type="submit">Apply</button>
-      <a href="/opportunities">Clear</a>
-    </form>
-  </div>
-
-  <table>
-    <thead>
-      <tr>
-        <th>ID</th>
-        <th>Title</th>
-        <th>Agency</th>
-        <th>NAICS</th>
-        <th>Score</th>
-        <th>Stage</th>
-        <th>Deadline</th>
-        <th>Last Updated</th>
-      </tr>
-    </thead>
-    <tbody>
-      {{range .Rows}}
-      <tr class="{{if .DeadlineSoon}}deadline-soon{{end}}">
-        <td>{{.ID}}</td>
-        <td><a href="/opportunity/{{.ID}}">{{.Title}}</a></td>
-        <td>{{.Agency}}</td>
-        <td>{{.NAICSCode}}</td>
-        <td>
-          {{if gt .Score 0.0}}
-            {{printf "%.1f" (multiply .Score 100)}}%
-            <br><small>{{.ReasoningSnippet}}</small>
-          {{else}}
-            —
-          {{end}}
-        </td>
-        <td>{{.Stage}}</td>
-        <td>
-          {{if .ResponseDeadline.IsZero}}—{{else}}{{.ResponseDeadline.Format "2006-01-02"}}{{end}}
-        </td>
-        <td>{{.LastUpdated.Format "2006-01-02 15:04"}}</td>
-      </tr>
-      {{else}}
-      <tr>
-        <td colspan="8">No opportunities found.</td>
-      </tr>
-      {{end}}
-    </tbody>
-  </table>
 </body>
 </html>
 `
-	// detailTmpl renders /opportunity/{id} per docs/dashboard/ux-spec.md View 2,
-	// composing the design-system renderers (issue #111).
-	const detailTmpl = `
-<!DOCTYPE html>
-<html lang="en">
-<head>
-  <meta charset="UTF-8">
-  <meta http-equiv="refresh" content="30">
-  <title>Kaimi — {{.PageTitle}}</title>
-  {{faviconLink}}
-  {{styleTag}}
-  <style>
-    /* Page-specific rules only; visual values come from the design-system
-       tokens emitted by styleTag (docs/dashboard/ux-spec.md). */
-    body { margin: 1rem 2rem; max-width: 920px; }
-    .head { display: flex; align-items: center; gap: 1rem; margin: 0.75rem 0 0.5rem; flex-wrap: wrap; }
-    .head h1 { font: var(--t-h2); }
-    .metaline { display: flex; align-items: center; gap: 0.5rem; flex-wrap: wrap; margin-bottom: 1rem; color: var(--ink-2); }
-    h2 { font: var(--t-h3); margin: 1.5rem 0 0.5rem; }
-    table.kv { border-collapse: collapse; width: 100%; background: var(--surface); }
-    table.kv td { border: 1px solid var(--border); padding: 0.35rem 0.6rem; vertical-align: top; }
-    table.kv td:first-child { color: var(--ink-3); width: 200px; background: var(--surface-2); }
-    table.kv ul { margin: 0; padding-left: 1.1rem; }
-    pre { white-space: pre-wrap; background: var(--surface-2); border: 1px solid var(--border); border-radius: var(--r-sm); padding: 0.75rem; }
-    .deadline-soon { background: var(--st-failed-bg); color: var(--st-failed); font-weight: bold; }
-    a { color: var(--primary); }
-  </style>
-</head>
-<body>
-  {{headerLockup}}
-  <a href="/">← Back to pipeline</a>
-  <div class="head">
-    {{if gt .Opp.Score 0.0}}{{fitRing .Opp.Score}}{{end}}
-    <h1>{{.Opp.Title}}</h1>
-  </div>
-  <div class="metaline">
-    <span>{{.Opp.Agency}}</span>
-    {{if .Opp.NAICSCode}}{{metaTag (printf "NAICS %s" .Opp.NAICSCode)}}{{end}}
-    {{if .Opp.SolicitationNum}}{{metaTag (printf "SOL# %s" .Opp.SolicitationNum)}}{{end}}
-    {{recPill .Opp.Recommendation}}
-    {{if .DeadlineStr}}{{deadlinePill .DeadlineStr .DeadlineDays}}{{end}}
+
+// listContentTmpl is the Triage screen (design handoff "2. Opportunities"):
+// page head with stat strip, segmented recommendation filter + sort toggle,
+// day-grouped opportunity row cards, and the designed empty state.
+const listContentTmpl = `{{define "content"}}
+<div class="page">
+  <div class="page-head">
+    <div class="eyebrow">Triage</div>
+    <h1>Opportunities</h1>
+    <p class="lead">Live federal opportunities Kaimi hunted and scored against your capabilities. Pick what to pursue.</p>
+    <div class="stats">
+      <div class="stat">
+        <div class="v">{{.QueueCount}}<small> in queue</small></div>
+        <div class="k">From last night&#39;s SAM.gov run</div>
+      </div>
+      <div class="stat">
+        <div class="v">{{.NewCount}}<small> new</small></div>
+        <div class="k">Added today</div>
+      </div>
+      <div class="stat">
+        <div class="v">{{.TopFit}}</div>
+        <div class="k">Top fit score</div>
+      </div>
+    </div>
   </div>
 
-  <h2>Identification</h2>
+  <div class="toolbar">
+    <div class="seg">
+      <form method="GET" action="/"><input type="hidden" name="sort" value="{{.ActiveSort}}">
+        <button{{if eq .ActiveRec ""}} class="on"{{end}} name="rec" value="">All</button>
+        <button{{if eq .ActiveRec "BID"}} class="on"{{end}} name="rec" value="BID">To pursue</button>
+        <button{{if eq .ActiveRec "REVIEW"}} class="on"{{end}} name="rec" value="REVIEW">Needs review</button>
+      </form>
+    </div>
+    <div class="grow"></div>
+    <form method="GET" action="/"><input type="hidden" name="rec" value="{{.ActiveRec}}">
+      <button class="sortbtn" name="sort" value="{{.SortToggle}}">` + iconSliders + `Sort: {{.SortLabel}}</button>
+    </form>
+  </div>
+
+  <div class="opp-list">
+    {{if .TodayRows}}
+    <div class="day"><span>New today</span><span class="ln"></span></div>
+    {{range .TodayRows}}{{template "orow" .}}{{end}}
+    {{end}}
+    {{if .EarlierRows}}
+    <div class="day"><span>Earlier</span><span class="ln"></span></div>
+    {{range .EarlierRows}}{{template "orow" .}}{{end}}
+    {{end}}
+    {{if .Empty}}
+    <div class="empty2">
+      <div class="g">` + iconSearch + `</div>
+      <h3>Nothing here right now</h3>
+      <p>No opportunities match this filter. The next hunt runs tonight at 02:00.</p>
+    </div>
+    {{end}}
+  </div>
+</div>
+{{end}}
+
+{{define "orow"}}
+<a class="orow{{if .IsNew}} new{{end}}" href="/opportunity/{{.ID}}">
+  <span class="newdot" title="New today"></span>
+  {{if .ScorePct}}{{fitRing .ScorePct 46}}{{end}}
+  <div class="body">
+    <div class="ttl">{{.Title}}</div>
+    <div class="meta">
+      <span>{{.Agency}}</span><span class="sep"></span>
+      <span class="naics">NAICS {{.NAICSCode}}</span>
+    </div>
+  </div>
+  <div class="right">
+    {{if .RecClass}}<span class="rec-min rec-min--{{.RecClass}}">{{.RecWord}}</span>{{end}}
+    {{if .DeadlineLabel}}{{deadlinePill .DeadlineLabel .DeadlineDays}}{{end}}
+    <span class="chev">` + iconChev + `</span>
+  </div>
+</a>
+{{end}}
+`
+
+// detailContentTmpl is the opportunity detail: the handoff drawer's content
+// blocks (dr-top, tags, reasons, must-have checklist, solicitation link)
+// followed by the full-record sections required by ux-spec View 2.
+const detailContentTmpl = `{{define "content"}}
+<div class="ws">
+  <a class="back" href="/">` + iconBack + `All opportunities</a>
+
+  <div class="dr-top" style="margin-top:14px">
+    {{if .ScorePct}}{{fitRing .ScorePct 92}}{{end}}
+    <div>
+      <h2 style="font:700 21px/1.2 var(--font-sans);letter-spacing:-0.02em">{{.Opp.Title}}</h2>
+      <div class="dr-sub">{{.Opp.Agency}}</div>
+      <div class="dr-tags">
+        {{if .Opp.NAICSCode}}{{metaTag (printf "NAICS %s" .Opp.NAICSCode)}}{{end}}
+        {{if .Opp.SolicitationNum}}{{metaTag (printf "SOL# %s" .Opp.SolicitationNum)}}{{end}}
+        {{recPill .Opp.Recommendation}}
+        {{if .DeadlineLabel}}{{deadlinePill .DeadlineLabel .DeadlineDays}}{{end}}
+      </div>
+    </div>
+  </div>
+
+  {{if .Reasons}}
+  <div class="dr-sec-h">Why Kaimi scored this {{.ScorePct}}</div>
+  <ul class="reasons">
+    {{range .Reasons}}<li><span class="rd"></span>{{.}}</li>{{end}}
+  </ul>
+  {{end}}
+
+  {{if .Opp.Requirements}}
+  <div class="dr-sec-h">Must-have requirements</div>
+  <div class="musts">
+    {{range .Opp.Requirements}}
+    <div class="must {{$.MustClass}}"><span class="mc">{{if eq $.MustClass "ok"}}` + iconCheck + `{{else}}` + iconWarn + `{{end}}</span>{{.}}</div>
+    {{end}}
+  </div>
+  {{end}}
+
+  <div class="art-row" style="margin-top:22px">
+    {{if .Opp.Selected}}
+    <a class="kbtn kbtn--secondary" href="/workspace/{{.Opp.ID}}" style="text-decoration:none">` + iconCheck + `In your proposals</a>
+    {{else if .CanSelect}}
+    <form method="POST" action="/opportunity/{{.Opp.ID}}/select" style="margin:0">
+      <button class="kbtn kbtn--select kbtn--lg">` + iconArrow + `Select to pursue</button>
+    </form>
+    {{end}}
+  </div>
+  {{if .Opp.URL}}
+  <div class="art-row" style="margin-top:10px">
+    <a class="artifact2" href="{{.Opp.URL}}">` + iconLink + `View solicitation</a>
+  </div>
+  {{end}}
+
+  <div class="dr-sec-h">Identification</div>
   <table class="kv">
     <tr><td>ID</td><td>{{.Opp.ID}}</td></tr>
-    <tr><td>Title</td><td>{{.Opp.Title}}</td></tr>
     <tr><td>Solicitation #</td><td>{{orDash .Opp.SolicitationNum}}</td></tr>
-    <tr><td>Agency</td><td>{{orDash .Opp.Agency}}</td></tr>
     <tr><td>Office</td><td>{{orDash .Opp.Office}}</td></tr>
     <tr><td>Type</td><td>{{orDash .Opp.Type}}</td></tr>
     <tr><td>Contract Type</td><td>{{orDash .Opp.ContractType}}</td></tr>
     <tr><td>Set-Aside</td><td>{{orDash .Opp.SetAsideCode}}</td></tr>
     <tr><td>Place of Performance</td><td>{{orDash .Opp.PlaceOfPerformance}}</td></tr>
-    <tr><td>SAM.gov Link</td><td>{{if .Opp.URL}}<a href="{{.Opp.URL}}">View on SAM.gov</a>{{else}}&mdash;{{end}}</td></tr>
   </table>
 
-  <h2>Dates</h2>
+  <div class="dr-sec-h">Dates</div>
   <table class="kv">
     <tr><td>Posted</td><td>{{orDash .PostedDateStr}}</td></tr>
     <tr><td>Response Deadline</td><td{{if .DeadlineSoon}} class="deadline-soon"{{end}}>{{orDash .DeadlineStr}}{{if .DeadlineSoon}} ⚠{{end}}</td></tr>
@@ -216,41 +303,48 @@ func (h *Handler) setupTemplates() {
     <tr><td>Last Updated</td><td>{{orDash .UpdatedAtStr}}</td></tr>
   </table>
 
-  <h2>Classification</h2>
+  <div class="dr-sec-h">Classification</div>
   <table class="kv">
     <tr><td>NAICS Code</td><td>{{orDash .Opp.NAICSCode}}</td></tr>
     <tr><td>NAICS Description</td><td>{{orDash .Opp.NAICSDescription}}</td></tr>
   </table>
 
-  <h2>Description</h2>
-  {{if .Opp.Description}}<pre>{{.Opp.Description}}</pre>{{else}}<p>&mdash;</p>{{end}}
+  <div class="dr-sec-h">Description</div>
+  {{if .Opp.Description}}<pre class="detail-pre">{{.Opp.Description}}</pre>{{else}}<p>&mdash;</p>{{end}}
 
-  <h2>Scoring</h2>
+  <div class="dr-sec-h">Scoring</div>
   <table class="kv">
     <tr><td>Score</td><td>{{.ScoreDisplay}}</td></tr>
     <tr><td>Recommendation</td><td>{{if .Opp.Recommendation}}{{recPill .Opp.Recommendation}}{{else}}&mdash;{{end}}</td></tr>
     <tr><td>Scored At</td><td>{{orDash .ScoredAtStr}}</td></tr>
-    <tr><td>Requirements</td><td>{{if .Opp.Requirements}}<ul>{{range .Opp.Requirements}}<li>{{.}}</li>{{end}}</ul>{{else}}&mdash;{{end}}</td></tr>
-    <tr><td>Full Reasoning</td><td>{{if .Opp.ScoreReasoning}}<pre>{{.Opp.ScoreReasoning}}</pre>{{else}}&mdash;{{end}}</td></tr>
+    <tr><td>Full Reasoning</td><td>{{if .Opp.ScoreReasoning}}<pre class="detail-pre">{{.Opp.ScoreReasoning}}</pre>{{else}}&mdash;{{end}}</td></tr>
   </table>
 
-  <h2>Eligibility</h2>
+  <div class="dr-sec-h">Eligibility</div>
   <div id="eligibility-placeholder">Eligibility check: not yet implemented (Phase 1+)</div>
 
-  <h2>Proposal Status</h2>
+  <div class="dr-sec-h">Proposal Status</div>
   <table class="kv">
     <tr><td>Current Stage</td><td>{{.DerivedStage}}</td></tr>
     <tr><td>Selected</td><td>{{if .Opp.Selected}}Yes{{else}}No{{end}}</td></tr>
     <tr><td>Selected At</td><td>{{orDash .SelectedAtStr}}</td></tr>
     <tr><td>Proposal Status</td><td>{{orDash .Opp.ProposalStatus}}</td></tr>
   </table>
-</body>
-</html>
+</div>
+
+<style>
+  .kv { border-collapse: collapse; width: 100%; background: var(--surface); }
+  .kv td { border: 1px solid var(--border); padding: 0.4rem 0.7rem; vertical-align: top; font-size: 13.5px; }
+  .kv td:first-child { color: var(--ink-3); width: 200px; background: var(--surface-2); }
+  .detail-pre { white-space: pre-wrap; background: var(--surface-2); border: 1px solid var(--border); border-radius: var(--r-sm); padding: 0.75rem; font: var(--t-small); margin: 0; }
+  .deadline-soon { background: var(--st-failed-bg); color: var(--st-failed); font-weight: bold; }
+</style>
+{{end}}
 `
 
-	// notFoundTmpl is the plain 404 page; it deliberately omits the
-	// auto-refresh meta tag (ux-spec: nothing new to fetch).
-	const notFoundTmpl = `
+// notFoundTmplStr is the plain 404 page; it deliberately omits the
+// auto-refresh meta tag (ux-spec: nothing new to fetch).
+const notFoundTmplStr = `
 <!DOCTYPE html>
 <html lang="en">
 <head>
@@ -268,21 +362,19 @@ func (h *Handler) setupTemplates() {
 </html>
 `
 
+func (h *Handler) setupTemplates() {
 	funcMap := template.FuncMap{
-		"multiply": func(a, b float64) float64 { return a * b },
-		// Brand and design-system assets (issues #126/#132/#141): the layout
-		// composes these instead of hardcoding visual values.
+		// Brand and design-system assets (issues #126/#132/#141/#150).
 		"faviconLink":  FaviconLink,
 		"styleTag":     StyleTag,
 		"headerLockup": HeaderLockup,
-		// Design-system component renderers (issue #111).
-		"fitRing": func(score float64) template.HTML {
-			// Opportunity.Score is 0.0-1.0; the ring takes 0-100.
-			return FitRing(int(math.Round(score*100)), 64)
-		},
+		"fitRing":      FitRing,
 		"recPill":      RecommendationPill,
 		"deadlinePill": DeadlinePill,
 		"metaTag":      MetaTag,
+		"miniPipe":     miniPipe,
+		"wPipe":        wPipe,
+		"propChip":     propChip,
 		"orDash": func(s string) string {
 			if s == "" {
 				return "—"
@@ -290,13 +382,63 @@ func (h *Handler) setupTemplates() {
 			return s
 		},
 	}
-	h.tmpl = template.Must(template.New("layout").Funcs(funcMap).Parse(layoutTmpl))
-	h.detailTmpl = template.Must(template.New("detail").Funcs(funcMap).Parse(detailTmpl))
-	h.notFoundTmpl = template.Must(template.New("notfound").Funcs(funcMap).Parse(notFoundTmpl))
+	h.listTmpl = template.Must(template.Must(
+		template.New("list").Funcs(funcMap).Parse(shellTmpl)).Parse(listContentTmpl))
+	h.detailTmpl = template.Must(template.Must(
+		template.New("detail").Funcs(funcMap).Parse(shellTmpl)).Parse(detailContentTmpl))
+	h.proposalsTmpl = template.Must(template.Must(
+		template.New("proposals").Funcs(funcMap).Parse(shellTmpl)).Parse(proposalsContentTmpl))
+	h.workspaceTmpl = template.Must(template.Must(
+		template.New("workspace").Funcs(funcMap).Parse(shellTmpl)).Parse(workspaceContentTmpl))
+	h.notFoundTmpl = template.Must(template.New("notfound").Funcs(funcMap).Parse(notFoundTmplStr))
 }
 
 func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	h.mux.ServeHTTP(w, r)
+}
+
+// shellData carries what the app shell (sidebar) needs on every page.
+type shellData struct {
+	PageTitle   string
+	ActiveNav   string // "opps" highlights the Opportunities nav item
+	QueueCount  int    // total opportunities in the queue
+	NeedsCount  int    // opportunities awaiting human review (amber badge)
+	ActiveCount int    // opportunities selected into proposal work
+}
+
+// OverviewData is the view-model for the Triage screen.
+type OverviewData struct {
+	shellData
+	NewCount    int // added today (CreatedAt on the server's current day)
+	TopFit      int // max fit score over the unfiltered queue
+	ActiveRec   string
+	ActiveSort  string
+	SortToggle  string // the sort the button switches to
+	SortLabel   string
+	TodayRows   []TriageRow
+	EarlierRows []TriageRow
+	Empty       bool
+}
+
+// TriageRow is the view-model for one opportunity row card.
+type TriageRow struct {
+	ID            string
+	Title         string
+	Agency        string
+	NAICSCode     string
+	ScorePct      int
+	RecClass      string // "bid" | "review" | "nobid" | ""
+	RecWord       string // "Bid" | "Review" | "No bid"
+	DeadlineLabel string
+	DeadlineDays  int
+	IsNew         bool
+}
+
+// recDisplay maps the scorer vocabulary to row display values.
+var recDisplay = map[string]struct{ class, word string }{
+	"BID":    {"bid", "Bid"},
+	"REVIEW": {"review", "Review"},
+	"NO_BID": {"nobid", "No bid"},
 }
 
 func (h *Handler) handleList(w http.ResponseWriter, r *http.Request) {
@@ -307,82 +449,128 @@ func (h *Handler) handleList(w http.ResponseWriter, r *http.Request) {
 
 	ctx := r.Context()
 	query := r.URL.Query()
+	now := h.Now()
 
-	opts := ListOptions{
-		Now: h.Now(),
-	}
-
+	opts := ListOptions{Now: now}
 	if s := query.Get("stage"); s != "" {
 		st := Stage(s)
 		opts.Stage = &st
 	}
-
 	if ms := query.Get("minScore"); ms != "" {
 		if f, err := strconv.ParseFloat(ms, 64); err == nil {
 			opts.MinScore = f
 		}
 	}
-
-	if sort := query.Get("sort"); sort != "" {
-		opts.SortBy = SortKey(sort)
+	if rec := query.Get("rec"); rec == "BID" || rec == "REVIEW" || rec == "NO_BID" {
+		opts.Recommendation = rec
+	}
+	opts.SortBy = SortByScore
+	if query.Get("sort") == "deadline" {
+		opts.SortBy = SortByDeadline
 	}
 
 	rows, err := h.svc.List(ctx, opts)
 	if err != nil {
-		http.Error(w, fmt.Sprintf("failed to list opportunities: %v", err), http.StatusInternalServerError)
+		// Generic message to the client; details stay server-side (issue #145).
+		fmt.Printf("dashboard list failed: %v\n", err)
+		http.Error(w, "failed to load opportunities", http.StatusInternalServerError)
 		return
 	}
 
-	// For stage cards, we need the counts across all stages (ignoring filters)
-	counts, err := h.svc.CountsByStage(ctx)
+	// Shell counts and stats come from the unfiltered queue.
+	all, err := h.svc.List(ctx, ListOptions{Now: now})
 	if err != nil {
-		http.Error(w, fmt.Sprintf("failed to load counts for cards: %v", err), http.StatusInternalServerError)
+		fmt.Printf("dashboard list failed: %v\n", err)
+		http.Error(w, "failed to load opportunities", http.StatusInternalServerError)
 		return
 	}
 
 	data := OverviewData{
-		PageTitle: "Overview",
-		Cards: []StageCard{
-			{Label: "Hunted", Stage: string(StageHunted), Count: counts[StageHunted]},
-			{Label: "Scored", Stage: string(StageScored), Count: counts[StageScored]},
-			{Label: "Selected", Stage: string(StageSelected), Count: counts[StageSelected]},
-			{Label: "In Proposal", Stage: string(StageInProposal), Count: counts[StageInProposal]},
-			{Label: "Awaiting Review", Stage: string(StageAwaitingHumanReview), Count: counts[StageAwaitingHumanReview], Alert: counts[StageAwaitingHumanReview] > 0},
-			{Label: "Finalized", Stage: string(StageFinalized), Count: counts[StageFinalized]},
+		shellData: shellData{
+			PageTitle:  "Opportunities",
+			ActiveNav:  "opps",
+			QueueCount: len(all),
 		},
-		Rows:           rows,
-		ActiveStage:    query.Get("stage"),
-		ActiveMinScore: query.Get("minScore"),
-		ActiveSort:     string(opts.SortBy),
+		ActiveRec:  opts.Recommendation,
+		ActiveSort: "score",
+		SortToggle: "deadline",
+		SortLabel:  "Fit score",
 	}
-
-	if data.ActiveSort == "" {
-		data.ActiveSort = "deadline"
+	if opts.SortBy == SortByDeadline {
+		data.ActiveSort, data.SortToggle, data.SortLabel = "deadline", "score", "Deadline"
 	}
+	for i := range all {
+		if sameDay(all[i].CreatedAt, now) {
+			data.NewCount++
+		}
+		if pct := int(math.Round(all[i].Score * 100)); pct > data.TopFit {
+			data.TopFit = pct
+		}
+		switch all[i].Stage {
+		case StageAwaitingHumanReview:
+			data.NeedsCount++
+			data.ActiveCount++
+		case StageSelected, StageInProposal, StageFinalized:
+			data.ActiveCount++
+		}
+	}
+	for i := range rows {
+		tr := toTriageRow(&rows[i], now)
+		if tr.IsNew {
+			data.TodayRows = append(data.TodayRows, tr)
+		} else {
+			data.EarlierRows = append(data.EarlierRows, tr)
+		}
+	}
+	data.Empty = len(rows) == 0
 
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
-	if err := h.tmpl.Execute(w, data); err != nil {
-		// Log error and return internal server error if possible
-		fmt.Printf("template execution failed: %v\n", err)
+	if err := h.listTmpl.Execute(w, data); err != nil {
+		fmt.Printf("list template execution failed: %v\n", err)
 	}
 }
 
-// OverviewData matches the contract in ux-spec.md
-type OverviewData struct {
-	PageTitle      string
-	Cards          []StageCard
-	Rows           []OpportunityRow
-	ActiveStage    string
-	ActiveMinScore string
-	ActiveSort     string
+// toTriageRow converts a service row to the Triage card view-model.
+func toTriageRow(row *OpportunityRow, now time.Time) TriageRow {
+	tr := TriageRow{
+		ID:        row.ID,
+		Title:     row.Title,
+		Agency:    row.Agency,
+		NAICSCode: row.NAICSCode,
+		ScorePct:  int(math.Round(row.Score * 100)),
+		IsNew:     sameDay(row.CreatedAt, now),
+	}
+	if rd, ok := recDisplay[row.Recommendation]; ok {
+		tr.RecClass, tr.RecWord = rd.class, rd.word
+	}
+	if !row.ResponseDeadline.IsZero() {
+		tr.DeadlineLabel, tr.DeadlineDays = deadlineDisplay(row.ResponseDeadline, now)
+	}
+	return tr
 }
 
-// StageCard represents a summary card for a pipeline stage.
-type StageCard struct {
-	Label string
-	Stage string
-	Count int
-	Alert bool
+// deadlineDisplay derives the pill label and days-left: close dates count
+// down in days ("9 days"); calm dates (>30d) show the date itself, per the
+// handoff's deadline escalation examples.
+func deadlineDisplay(deadline, now time.Time) (label string, daysLeft int) {
+	days := int(math.Ceil(deadline.Sub(now).Hours() / 24))
+	if days > 30 {
+		return deadline.Format("Jan 2"), days
+	}
+	if days == 1 {
+		return "1 day", days
+	}
+	return fmt.Sprintf("%d days", days), days
+}
+
+// sameDay reports whether both times fall on the same calendar day in UTC.
+func sameDay(a, b time.Time) bool {
+	if a.IsZero() || b.IsZero() {
+		return false
+	}
+	ay, am, ad := a.UTC().Date()
+	by, bm, bd := b.UTC().Date()
+	return ay == by && am == bm && ad == bd
 }
 
 // opportunityIDPattern is the conservative shape of a SAM.gov notice ID as
@@ -391,15 +579,19 @@ type StageCard struct {
 // before the store is consulted.
 var opportunityIDPattern = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$`)
 
-// DetailData is the view-model for the /opportunity/{id} page, per the
-// contract in docs/dashboard/ux-spec.md.
+// DetailData is the view-model for the /opportunity/{id} page.
 type DetailData struct {
-	PageTitle                                                             string
+	shellData
 	Opp                                                                   *opportunity.Opportunity
 	DerivedStage                                                          Stage
+	ScorePct                                                              int
 	ScoreDisplay                                                          string // "82.0%" or "—"
+	Reasons                                                               []string
+	MustClass                                                             string // "ok" when recommended BID, "no" otherwise
+	CanSelect                                                             bool   // proposal service wired and the opp is unselected
 	DeadlineStr                                                           string // "2026-06-18" or "" when unset
-	DeadlineDays                                                          int    // days until the deadline, for urgency styling
+	DeadlineLabel                                                         string // "9 days" pill label
+	DeadlineDays                                                          int
 	DeadlineSoon                                                          bool
 	PostedDateStr, CreatedAtStr, UpdatedAtStr, ScoredAtStr, SelectedAtStr string
 }
@@ -413,18 +605,25 @@ func (h *Handler) handleDetail(w http.ResponseWriter, r *http.Request) {
 
 	opp, err := h.svc.Get(r.Context(), id)
 	if err != nil {
-		// The store returns an error for any missing id; with the id shape
-		// already validated, render not-found rather than leaking internals.
-		h.renderNotFound(w, id)
+		if errors.Is(err, store.ErrNotFound) {
+			h.renderNotFound(w, id)
+			return
+		}
+		http.Error(w, "failed to load opportunity", http.StatusInternalServerError)
 		return
 	}
 
 	now := h.Now()
 	data := DetailData{
-		PageTitle:     opp.Title,
+		shellData: shellData{
+			PageTitle: opp.Title,
+			ActiveNav: "opps",
+		},
 		Opp:           opp,
 		DerivedStage:  DeriveStage(opp),
 		ScoreDisplay:  "—",
+		MustClass:     "no",
+		CanSelect:     h.proposals != nil && !opp.Selected,
 		DeadlineSoon:  isDeadlineSoon(opp.ResponseDeadline, now),
 		PostedDateStr: fmtDate(opp.PostedDate),
 		CreatedAtStr:  fmtDateTime(opp.CreatedAt),
@@ -432,18 +631,75 @@ func (h *Handler) handleDetail(w http.ResponseWriter, r *http.Request) {
 		ScoredAtStr:   fmtDateTimePtr(opp.ScoredAt),
 		SelectedAtStr: fmtDateTimePtr(opp.SelectedAt),
 	}
+	data.CanSelect = h.proposals != nil && !opp.Selected
 	if opp.Score > 0 {
+		data.ScorePct = int(math.Round(opp.Score * 100))
 		data.ScoreDisplay = fmt.Sprintf("%.1f%%", opp.Score*100)
 	}
+	// The checklist reads as satisfied only when the scorer recommends
+	// pursuit; for REVIEW/NO_BID the warn treatment flags human judgment.
+	if opp.Recommendation == "BID" {
+		data.MustClass = "ok"
+	}
+	data.Reasons = splitReasons(opp.ScoreReasoning)
 	if !opp.ResponseDeadline.IsZero() {
 		data.DeadlineStr = opp.ResponseDeadline.Format("2006-01-02")
-		data.DeadlineDays = int(math.Ceil(opp.ResponseDeadline.Sub(now).Hours() / 24))
+		data.DeadlineLabel, data.DeadlineDays = deadlineDisplay(opp.ResponseDeadline, now)
+	}
+
+	// Shell counts for the sidebar.
+	if all, err := h.svc.List(r.Context(), ListOptions{Now: now}); err == nil {
+		data.QueueCount = len(all)
+		for i := range all {
+			switch all[i].Stage {
+			case StageAwaitingHumanReview:
+				data.NeedsCount++
+				data.ActiveCount++
+			case StageSelected, StageInProposal, StageFinalized:
+				data.ActiveCount++
+			}
+		}
 	}
 
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	if err := h.detailTmpl.Execute(w, data); err != nil {
 		fmt.Printf("detail template execution failed: %v\n", err)
 	}
+}
+
+// splitReasons turns the scorer's prose reasoning into the drawer's bullet
+// list: one bullet per sentence, capped at four.
+func splitReasons(reasoning string) []string {
+	if reasoning == "" {
+		return nil
+	}
+	var out []string
+	rest := reasoning
+	for len(out) < 4 && rest != "" {
+		i := indexSentenceEnd(rest)
+		if i < 0 {
+			if r := strings.TrimSpace(rest); r != "" {
+				out = append(out, r)
+			}
+			break
+		}
+		if r := strings.TrimSpace(rest[:i+1]); r != "" {
+			out = append(out, r)
+		}
+		rest = rest[i+1:]
+	}
+	return out
+}
+
+// indexSentenceEnd finds the next sentence boundary: a period followed by a
+// space, newline, or end of string.
+func indexSentenceEnd(s string) int {
+	for i := 0; i < len(s); i++ {
+		if s[i] == '.' && (i == len(s)-1 || s[i+1] == ' ' || s[i+1] == '\n') {
+			return i
+		}
+	}
+	return -1
 }
 
 // renderNotFound writes the 404 page with the (auto-escaped) id echoed back.

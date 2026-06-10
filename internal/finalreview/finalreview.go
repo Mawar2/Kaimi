@@ -35,18 +35,35 @@ type Input struct {
 	// When nil, the required_section, required_form, and page_limit checks
 	// are skipped — only deadline and must_have checks run.
 	Outline *outline.Outline
+
+	// Documents maps a solicitation document filename to its extracted text
+	// (populated by the Manager's ingest stage). It is threaded through now so the
+	// LLM compliance pass (#164) can vet the draft against the full solicitation;
+	// the current deterministic checks do not use it.
+	Documents map[string]string
 }
 
 // Agent is the Final Review agent.
 //
 // It performs automated pre-submission checks and returns an AgentResult
-// indicating whether the proposal is ready for a human to submit.
-// Instantiate with New().
-type Agent struct{}
+// indicating whether the proposal is ready for a human to submit. With a
+// ComplianceChecker configured (NewWithComplianceChecker), it additionally runs
+// an LLM compliance pass that vets the draft against the full solicitation
+// document set; without one (New) it runs only the fast deterministic checks.
+type Agent struct {
+	checker ComplianceChecker // optional LLM compliance pass; nil = deterministic checks only
+}
 
-// New returns a new Final Review agent.
+// New returns a Final Review agent that runs only the deterministic checks.
 func New() *Agent {
 	return &Agent{}
+}
+
+// NewWithComplianceChecker returns a Final Review agent that runs the deterministic
+// checks as a fast pre-filter and then an LLM compliance pass (via checker) over
+// the full solicitation documents. The deterministic checks always run first.
+func NewWithComplianceChecker(checker ComplianceChecker) *Agent {
+	return &Agent{checker: checker}
 }
 
 // Review runs the final automated checks on an approved proposal draft.
@@ -90,6 +107,14 @@ func (a *Agent) Review(ctx context.Context, in Input) (*agent.Result, error) {
 		issues = append(issues, checkRequiredSections(in.Draft, in.Outline.Sections)...)
 		issues = append(issues, checkRequiredForms(in.Draft, in.Outline.FormattingRules)...)
 		issues = append(issues, checkPageLimit(in.Draft, in.Outline.FormattingRules)...)
+	}
+
+	// LLM compliance pass (optional). Runs after the deterministic pre-filter and
+	// only when there are solicitation documents to vet against. Any unmet
+	// requirement it finds — or a failure to run the check — becomes an issue,
+	// routing the proposal to needs_human.
+	if a.checker != nil && len(in.Documents) > 0 {
+		issues = append(issues, a.runCompliance(ctx, in)...)
 	}
 
 	flags := buildFlags(issues)

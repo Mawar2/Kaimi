@@ -186,3 +186,17 @@ func TestCountByStageEmpty(t *testing.T) {
 		t.Errorf("CountByStage(nil) = %v, want empty map", counts)
 	}
 }
+
+// TestDeriveStageSubmitted covers the human-submitted terminal state added
+// by the proposal lifecycle service (issue #155).
+func TestDeriveStageSubmitted(t *testing.T) {
+	opp := &opportunity.Opportunity{Selected: true, ProposalStatus: "submitted"}
+	if got := DeriveStage(opp); got != StageSubmitted {
+		t.Errorf("DeriveStage(submitted) = %q, want %q", got, StageSubmitted)
+	}
+	// In-progress agent stages remain In Proposal.
+	opp.ProposalStatus = "writer:in_progress"
+	if got := DeriveStage(opp); got != StageInProposal {
+		t.Errorf("DeriveStage(writer:in_progress) = %q, want %q", got, StageInProposal)
+	}
+}
