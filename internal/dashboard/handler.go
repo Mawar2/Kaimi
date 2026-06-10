@@ -240,7 +240,7 @@ const detailContentTmpl = `{{define "content"}}
   <div class="dr-top" style="margin-top:14px">
     {{if .ScorePct}}{{fitRing .ScorePct 92}}{{end}}
     <div>
-      <h2 style="font:700 21px/1.2 var(--font-sans);letter-spacing:-0.02em">{{.Opp.Title}}</h2>
+      <h2>{{.Opp.Title}}</h2>
       <div class="dr-sub">{{.Opp.Agency}}</div>
       <div class="dr-tags">
         {{if .Opp.NAICSCode}}{{metaTag (printf "NAICS %s" .Opp.NAICSCode)}}{{end}}
@@ -332,9 +332,9 @@ const detailContentTmpl = `{{define "content"}}
 
 <style>
   .kv { border-collapse: collapse; width: 100%; background: var(--surface); }
-  .kv td { border: 1px solid var(--border); padding: 0.4rem 0.7rem; vertical-align: top; font-size: 13.5px; }
+  .kv td { border: 1px solid var(--border); padding: var(--s-2) var(--s-3); vertical-align: top; font: var(--t-small); }
   .kv td:first-child { color: var(--ink-3); width: 200px; background: var(--surface-2); }
-  .detail-pre { white-space: pre-wrap; background: var(--surface-2); border: 1px solid var(--border); border-radius: var(--r-sm); padding: 0.75rem; font: var(--t-small); margin: 0; }
+  .detail-pre { white-space: pre-wrap; background: var(--surface-2); border: 1px solid var(--border); border-radius: var(--r-sm); padding: var(--s-3); font: var(--t-small); margin: 0; }
   .deadline-soon { background: var(--st-failed-bg); color: var(--st-failed); font-weight: bold; }
 </style>
 {{end}}
