@@ -137,13 +137,7 @@ func (gs *GeminiScorer) Score(ctx context.Context, opp *opportunity.Opportunity,
 		genai.NewContentFromText(prompt, genai.RoleUser),
 	}
 
-	temp := float32(0.2) // Low temperature for consistent, deterministic scoring
-	config := &genai.GenerateContentConfig{
-		Temperature:      &temp,
-		MaxOutputTokens:  1024,
-		ResponseMIMEType: "application/json",
-		ResponseSchema:   scoringResponseSchema(),
-	}
+	config := scoringGenerateConfig()
 
 	resp, err := gs.client.Models.GenerateContent(ctx, gs.modelName, contents, config)
 	if err != nil {
@@ -160,6 +154,31 @@ func (gs *GeminiScorer) Score(ctx context.Context, opp *opportunity.Opportunity,
 		return nil, fmt.Errorf("invalid Gemini response: %w", err)
 	}
 	return result, nil
+}
+
+// Output-budget sizing for the scoring call. gemini-2.5-pro is a thinking model:
+// its internal reasoning tokens are billed against MaxOutputTokens. The old
+// 1024 cap was consumed by thinking, leaving the JSON output empty or truncated
+// (finishReason MAX_TOKENS) — see issue #192. We raise the cap and bound the
+// thinking budget so reasoning can never starve the structured output. Values
+// are deliberately generous, tunable headroom, not tight estimates.
+const (
+	maxScoringOutputTokens = 8192
+	scoringThinkingBudget  = 2048
+)
+
+// scoringGenerateConfig builds the Gemini config for a scoring call, with
+// thinking-token headroom (see #192) and the structured-output schema.
+func scoringGenerateConfig() *genai.GenerateContentConfig {
+	temp := float32(0.2) // Low temperature for consistent, deterministic scoring
+	budget := int32(scoringThinkingBudget)
+	return &genai.GenerateContentConfig{
+		Temperature:      &temp,
+		MaxOutputTokens:  maxScoringOutputTokens,
+		ResponseMIMEType: "application/json",
+		ResponseSchema:   scoringResponseSchema(),
+		ThinkingConfig:   &genai.ThinkingConfig{ThinkingBudget: &budget},
+	}
 }
 
 // scoringResponseSchema returns the JSON schema for Gemini structured output.
