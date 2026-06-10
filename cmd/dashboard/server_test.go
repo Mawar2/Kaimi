@@ -2,10 +2,8 @@ package main
 
 import (
 	"context"
-	"html/template"
 	"net/http"
 	"net/http/httptest"
-	"os"
 	"strings"
 	"testing"
 	"time"
@@ -15,106 +13,105 @@ import (
 	"github.com/Mawar2/Kaimi/internal/store"
 )
 
-func TestDashboardHandler(t *testing.T) {
-	// Setup a temporary JSON store
-	tmpDir, err := os.MkdirTemp("", "dashboard-test-*")
+// newTestMux seeds a store with one opportunity per early stage and returns
+// the production route table (newMux) serving it.
+func newTestMux(t *testing.T) *http.ServeMux {
+	t.Helper()
+	s, err := store.NewJSONStore(t.TempDir())
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer func() {
-		_ = os.RemoveAll(tmpDir)
-	}()
-
-	s, err := store.NewJSONStore(tmpDir)
-	if err != nil {
-		t.Fatal(err)
-	}
-
-	// Add some test opportunities
 	now := time.Now()
 	opps := []opportunity.Opportunity{
-		{ID: "opp1", Title: "Hunted Opp"},                   // Hunted
-		{ID: "opp2", Title: "Scored Opp", ScoredAt: &now},   // Scored
-		{ID: "opp3", Title: "Selected Opp", Selected: true}, // Selected
+		{ID: "opp1", Title: "Hunted Opp", UpdatedAt: now},
+		{ID: "opp2", Title: "Scored Opp", ScoredAt: &now, Score: 0.8, UpdatedAt: now},
+		{ID: "opp3", Title: "Selected Opp", Selected: true, UpdatedAt: now},
 	}
-
-	for _, opp := range opps {
-		if err := s.Save(context.Background(), &opp); err != nil {
+	for i := range opps {
+		if err := s.Save(context.Background(), &opps[i]); err != nil {
 			t.Fatal(err)
 		}
 	}
+	return newMux(dashboard.NewHandler(dashboard.NewService(s)))
+}
 
-	svc := dashboard.NewService(s)
+// TestRouting exercises the composed route table — the integration seam that
+// issue #147 found broken (detail links 404ing, duplicate unbranded overview).
+func TestRouting(t *testing.T) {
+	mux := newTestMux(t)
 
-	tmpl, err := template.ParseFS(templatesFS, "templates/*.html")
-	if err != nil {
-		t.Fatalf("failed to parse templates: %v", err)
-	}
-
-	srv := &server{
-		svc:  svc,
-		tmpl: tmpl,
-	}
-
-	req := httptest.NewRequest(http.MethodGet, "/", http.NoBody)
-	rr := httptest.NewRecorder()
-
-	srv.handleOverview(rr, req)
-
-	if status := rr.Code; status != http.StatusOK {
-		t.Errorf("handler returned wrong status code: got %v want %v", status, http.StatusOK)
-	}
-
-	body := rr.Body.String()
-
-	// Check for stage names and counts
-	expectedStages := []string{"Hunted", "Scored", "Selected", "In Proposal", "Awaiting Human Review", "Finalized"}
-	for _, stage := range expectedStages {
-		if !strings.Contains(body, stage) {
-			t.Errorf("expected body to contain stage %q", stage)
-		}
-	}
-
-	// Verify each stage heading is followed by its expected count.
-	// Template renders: <h3>STAGE</h3> then <div class="count">N</div>.
-	// Test data: Hunted:1, Scored:1, Selected:1, all others:0.
-	stageCounts := []struct {
-		stage string
-		count string
+	tests := []struct {
+		name       string
+		path       string
+		wantStatus int
+		contains   []string
+		excludes   []string
 	}{
-		{"Hunted", "1"},
-		{"Scored", "1"},
-		{"Selected", "1"},
-		{"In Proposal", "0"},
-		{"Awaiting Human Review", "0"},
-		{"Finalized", "0"},
+		{
+			name:       "root serves the branded overview with cards and table",
+			path:       "/",
+			wantStatus: http.StatusOK,
+			contains: []string{
+				"THE SEEKER",                   // branded lockup (#126/#141)
+				"stage-card",                   // ux-spec View 1: stage cards…
+				"Hunted Opp",                   // …and the table on the same page
+				`<a href="/opportunity/opp2">`, // detail links
+			},
+		},
+		{
+			name:       "detail route is reachable",
+			path:       "/opportunity/opp2",
+			wantStatus: http.StatusOK,
+			contains:   []string{"Scored Opp", "Back to pipeline", "THE SEEKER"},
+		},
+		{
+			name:       "unknown opportunity renders the branded 404",
+			path:       "/opportunity/missing",
+			wantStatus: http.StatusNotFound,
+			contains:   []string{"Opportunity not found: missing"},
+		},
+		{
+			name:       "opportunities alias still serves the filterable list",
+			path:       "/opportunities?stage=Scored",
+			wantStatus: http.StatusOK,
+			contains:   []string{"Scored Opp"},
+			excludes:   []string{"Hunted Opp", "Selected Opp"},
+		},
 	}
-	for _, tc := range stageCounts {
-		heading := "<h3>" + tc.stage + "</h3>"
-		idx := strings.Index(body, heading)
-		if idx == -1 {
-			t.Errorf("stage %q: heading not found in rendered HTML", tc.stage)
-			continue
-		}
-		after := body[idx+len(heading):]
-		if len(after) > 200 {
-			after = after[:200]
-		}
-		want := `<div class="count">` + tc.count + `</div>`
-		if !strings.Contains(after, want) {
-			t.Errorf("stage %q: expected count %q immediately after heading, got:\n%s", tc.stage, tc.count, after)
-		}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			rr := httptest.NewRecorder()
+			mux.ServeHTTP(rr, httptest.NewRequest(http.MethodGet, tc.path, http.NoBody))
+			if rr.Code != tc.wantStatus {
+				t.Fatalf("GET %s: got status %v, want %v", tc.path, rr.Code, tc.wantStatus)
+			}
+			body := rr.Body.String()
+			for _, want := range tc.contains {
+				if !strings.Contains(body, want) {
+					t.Errorf("GET %s: body missing %q", tc.path, want)
+				}
+			}
+			for _, ban := range tc.excludes {
+				if strings.Contains(body, ban) {
+					t.Errorf("GET %s: body unexpectedly contains %q", tc.path, ban)
+				}
+			}
+		})
 	}
 }
 
-func TestDashboardHandler_NotFound(t *testing.T) {
-	srv := &server{}
-	req := httptest.NewRequest(http.MethodGet, "/not-found", http.NoBody)
+// TestNoDuplicateOverview pins the anti-bloat half of #147: the overview must
+// come from the shared branded handler, not a second cmd-local template.
+func TestNoDuplicateOverview(t *testing.T) {
+	mux := newTestMux(t)
 	rr := httptest.NewRecorder()
-
-	srv.handleOverview(rr, req)
-
-	if status := rr.Code; status != http.StatusNotFound {
-		t.Errorf("handler returned wrong status code: got %v want %v", status, http.StatusNotFound)
+	mux.ServeHTTP(rr, httptest.NewRequest(http.MethodGet, "/", http.NoBody))
+	body := rr.Body.String()
+	if !strings.Contains(body, "--st-human") {
+		t.Errorf("overview must carry the design-system tokens (branded handler)")
+	}
+	if strings.Contains(body, `class="stage-container"`) {
+		t.Errorf("overview is still rendering the old cmd-local template")
 	}
 }
