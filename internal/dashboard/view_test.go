@@ -279,8 +279,10 @@ func TestService_List_RowFieldsPopulated(t *testing.T) {
 		Title:            "Important Contract",
 		Agency:           "Department of Defense",
 		NAICSCode:        "541330",
+		SolicitationNum:  "W912-24-R-0042",
 		Score:            0.85,
 		ScoreReasoning:   "Strong past performance and relevant experience.",
+		Recommendation:   "BID",
 		ScoredAt:         &now,
 		ResponseDeadline: deadline,
 		UpdatedAt:        now,
@@ -310,6 +312,12 @@ func TestService_List_RowFieldsPopulated(t *testing.T) {
 	}
 	if r.NAICSCode != "541330" {
 		t.Errorf("NAICSCode: got %s", r.NAICSCode)
+	}
+	if r.SolicitationNum != "W912-24-R-0042" {
+		t.Errorf("SolicitationNum: got %s", r.SolicitationNum)
+	}
+	if r.Recommendation != "BID" {
+		t.Errorf("Recommendation: got %s, want BID", r.Recommendation)
 	}
 	if r.Score != 0.85 {
 		t.Errorf("Score: got %f, want 0.85", r.Score)
