@@ -37,7 +37,7 @@ serving the **old** bytes and silently mask your change). Confirm with
 | Proposals command | `/proposals` | `03-proposals-command.png` | ☐ | ☐ | ☐ | ☐ |
 | Workspace | `/workspace/{id}` | `04/06/07-workspace*.png` | ☐ | ☐ | ☐ | ☐ |
 | Shared chrome (header/nav/states/responsive) | all | — | partial | typography | ✅ fonts | ☐ |
-| Component pass (all states) | — | `08-design-system*.png` | ☐ | ☐ | ☐ | ☐ |
+| Component pass (all states) | — | `08-design-system*.png` | ✅ 06-10 | tests only (code OK) | ✅ all bands | ☐ |
 
 ## Iteration log
 
@@ -68,6 +68,20 @@ fallback. Variable builds chosen because the type tokens use non-standard weight
 **0** external font requests; no console errors; served page `+62.5KB` (the embedded
 faces). `make all`-equivalent green (module build + all package tests + `golangci-lint`
 clean on `internal/dashboard`). Typography now matches the comps.
+
+### 2026-06-10 — Component pass: verify all states + close test gaps (PR pending, issue #214)
+
+Seeded a full **rec × urgency × fit** matrix and verified every shared component renders the
+correct design-system color in a real browser: RecommendationPill (BID green / NO_BID `#C2354A`
+on `#FBE9EC` / REVIEW amber); DeadlinePill (crit white-on-solid-red / near `#E8870E` / soon
+`#2563EB` / calm base); FitRing (strong `#15A06B` / good `#0EA5C4` / fair `#E8870E` / weak
+`#C2354A`); StatusBadge (all 5 kinds), MetaTag, HeaderLockup, FaviconLink. **Components are
+correct — no production change.** Note: Triage uses the compact `.rec-min` variant; the full
+`.krec` pill renders on detail/proposals/workspace.
+
+Closed the two explicit test-coverage gaps the brief calls for: `TestDeadlinePill` now asserts
+`kdead--near` (10d) + `kdead--soon` (20d); new `TestFitRingBandPerScore` asserts `data-band`
+good/fair/weak (the geometry test already covered `strong`). `make all`-green; lint clean.
 
 ## Audit backlog (found while auditing; not yet ticketed/fixed)
 
