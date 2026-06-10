@@ -35,6 +35,10 @@ const (
 	// StageFinalized means the proposal is ready to submit
 	// (ProposalStatus == "final-review:ready_to_submit").
 	StageFinalized Stage = "Finalized"
+
+	// StageSubmitted means the human submitted the proposal to SAM.gov
+	// (ProposalStatus == "submitted"). Agents stand down.
+	StageSubmitted Stage = "Submitted"
 )
 
 // DeriveStage returns the pipeline stage for opp by applying the field mapping
@@ -46,6 +50,8 @@ const (
 func DeriveStage(opp *opportunity.Opportunity) Stage {
 	if opp.Selected {
 		switch {
+		case opp.ProposalStatus == "submitted":
+			return StageSubmitted
 		case opp.ProposalStatus == "final-review:ready_to_submit":
 			return StageFinalized
 		case strings.HasSuffix(opp.ProposalStatus, ":needs_human"):
@@ -64,13 +70,13 @@ func DeriveStage(opp *opportunity.Opportunity) Stage {
 
 // CountByStage tallies how many opportunities in opps fall into each Stage.
 // Stages with zero entries are omitted from the returned map.
-func CountByStage(opps []opportunity.Opportunity) map[Stage]int {
+func CountByStage(opps []*opportunity.Opportunity) map[Stage]int {
 	if len(opps) == 0 {
 		return map[Stage]int{}
 	}
 	counts := make(map[Stage]int, 6)
-	for i := range opps {
-		counts[DeriveStage(&opps[i])]++
+	for _, opp := range opps {
+		counts[DeriveStage(opp)]++
 	}
 	return counts
 }
