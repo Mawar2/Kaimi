@@ -35,6 +35,10 @@ const (
 	// StageFinalized means the proposal is ready to submit
 	// (ProposalStatus == "final-review:ready_to_submit").
 	StageFinalized Stage = "Finalized"
+
+	// StageSubmitted means the human submitted the proposal to SAM.gov
+	// (ProposalStatus == "submitted"). Agents stand down.
+	StageSubmitted Stage = "Submitted"
 )
 
 // DeriveStage returns the pipeline stage for opp by applying the field mapping
@@ -46,6 +50,8 @@ const (
 func DeriveStage(opp *opportunity.Opportunity) Stage {
 	if opp.Selected {
 		switch {
+		case opp.ProposalStatus == "submitted":
+			return StageSubmitted
 		case opp.ProposalStatus == "final-review:ready_to_submit":
 			return StageFinalized
 		case strings.HasSuffix(opp.ProposalStatus, ":needs_human"):
