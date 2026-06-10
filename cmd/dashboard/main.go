@@ -3,10 +3,8 @@ package main
 
 import (
 	"context"
-	"embed"
 	"flag"
 	"fmt"
-	"html/template"
 	"log"
 	"net"
 	"net/http"
@@ -19,19 +17,24 @@ import (
 	"github.com/Mawar2/Kaimi/internal/store"
 )
 
-//go:embed templates/*.html
-var templatesFS embed.FS
-
-type server struct {
-	svc  *dashboard.Service
-	tmpl *template.Template
-}
-
 func main() {
 	if err := run(); err != nil {
 		fmt.Fprintf(os.Stderr, "error: %v\n", err)
 		os.Exit(1)
 	}
+}
+
+// newMux wires all dashboard routes to the shared branded handler (issue
+// #147): it serves the pipeline overview — stage cards plus the opportunity
+// table — at "/" (ux-spec View 1) and the opportunity detail at
+// "/opportunity/{id}" (View 2). "/opportunities" stays mounted as an alias
+// because the overview's filter form submits there.
+func newMux(h *dashboard.Handler) *http.ServeMux {
+	mux := http.NewServeMux()
+	mux.Handle("/", h)
+	mux.Handle("/opportunities", h)
+	mux.Handle("/opportunities/", h)
+	return mux
 }
 
 func run() error {
@@ -48,25 +51,7 @@ func run() error {
 		return fmt.Errorf("failed to initialize store: %w", err)
 	}
 
-	svc := dashboard.NewService(s)
-
-	tmpl, err := template.ParseFS(templatesFS, "templates/*.html")
-	if err != nil {
-		return fmt.Errorf("failed to parse templates: %w", err)
-	}
-
-	srv := &server{
-		svc:  svc,
-		tmpl: tmpl,
-	}
-
-	// Opportunity table handler (issue #110): filters, sort, and deadline flag.
-	opportunityHandler := dashboard.NewHandler(svc)
-
-	mux := http.NewServeMux()
-	mux.HandleFunc("/", srv.handleOverview)
-	mux.Handle("/opportunities", opportunityHandler)
-	mux.Handle("/opportunities/", opportunityHandler)
+	mux := newMux(dashboard.NewHandler(dashboard.NewService(s)))
 
 	addr := net.JoinHostPort("127.0.0.1", fmt.Sprintf("%d", *port))
 	httpSrv := &http.Server{
@@ -96,45 +81,4 @@ func run() error {
 
 	log.Println("Server exiting")
 	return nil
-}
-
-func (s *server) handleOverview(w http.ResponseWriter, r *http.Request) {
-	if r.URL.Path != "/" {
-		http.NotFound(w, r)
-		return
-	}
-
-	rows, err := s.svc.List(r.Context(), dashboard.ListOptions{})
-	if err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
-		return
-	}
-
-	counts := make(map[dashboard.Stage]int)
-	for i := range rows {
-		counts[rows[i].Stage]++
-	}
-
-	data := struct {
-		Stages []struct {
-			Name dashboard.Stage
-		}
-		Counts map[dashboard.Stage]int
-	}{
-		Stages: []struct {
-			Name dashboard.Stage
-		}{
-			{dashboard.StageHunted},
-			{dashboard.StageScored},
-			{dashboard.StageSelected},
-			{dashboard.StageInProposal},
-			{dashboard.StageAwaitingHumanReview},
-			{dashboard.StageFinalized},
-		},
-		Counts: counts,
-	}
-
-	if err := s.tmpl.ExecuteTemplate(w, "layout.html", data); err != nil {
-		log.Printf("Template error: %v", err)
-	}
 }
