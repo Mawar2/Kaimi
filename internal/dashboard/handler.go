@@ -278,7 +278,7 @@ const detailContentTmpl = `{{define "content"}}
   </div>
   {{if .Opp.URL}}
   <div class="art-row" style="margin-top:10px">
-    <a class="artifact2" href="{{.Opp.URL}}">` + iconLink + `View solicitation</a>
+    <a class="artifact2" href="{{.Opp.URL}}" target="_blank" rel="noopener noreferrer">` + iconLink + `View solicitation</a>
   </div>
   {{end}}
 
@@ -466,6 +466,9 @@ func (h *Handler) handleList(w http.ResponseWriter, r *http.Request) {
 	if query.Get("sort") == "deadline" {
 		opts.SortBy = SortByDeadline
 	}
+	// The Opportunities queue is self-cleaning: pursued opportunities live in
+	// the Proposals/Submitted surfaces, not here (design PIPELINE.md §1).
+	opts.ExcludeSelected = true
 
 	rows, err := h.svc.List(ctx, opts)
 	if err != nil {
@@ -485,9 +488,11 @@ func (h *Handler) handleList(w http.ResponseWriter, r *http.Request) {
 
 	data := OverviewData{
 		shellData: shellData{
-			PageTitle:  "Opportunities",
-			ActiveNav:  "opps",
-			QueueCount: len(all),
+			PageTitle: "Opportunities",
+			ActiveNav: "opps",
+			// QueueCount is the still-actionable (un-pursued) queue size; it is
+			// tallied from the unfiltered set below so pursued opportunities
+			// don't inflate the count (design PIPELINE.md §1).
 		},
 		ActiveRec:  opts.Recommendation,
 		ActiveSort: "score",
@@ -498,13 +503,17 @@ func (h *Handler) handleList(w http.ResponseWriter, r *http.Request) {
 		data.ActiveSort, data.SortToggle, data.SortLabel = "deadline", "score", "Deadline"
 	}
 	for i := range all {
-		if sameDay(all[i].CreatedAt, now) {
-			data.NewCount++
-		}
-		if pct := int(math.Round(all[i].Score * 100)); pct > data.TopFit {
-			data.TopFit = pct
-		}
+		// QueueCount, NewCount and TopFit describe the visible (un-pursued)
+		// triage queue; the pursued stages feed the pipeline/Proposals counts.
 		switch all[i].Stage {
+		case StageHunted, StageScored:
+			data.QueueCount++
+			if sameDay(all[i].CreatedAt, now) {
+				data.NewCount++
+			}
+			if pct := int(math.Round(all[i].Score * 100)); pct > data.TopFit {
+				data.TopFit = pct
+			}
 		case StageAwaitingHumanReview:
 			data.NeedsCount++
 			data.ActiveCount++

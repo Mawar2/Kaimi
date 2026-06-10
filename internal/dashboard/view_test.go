@@ -57,6 +57,50 @@ func TestService_List_NoFilters_ReturnsAll(t *testing.T) {
 	}
 }
 
+// TestService_List_ExcludeSelected verifies the self-cleaning queue rule
+// (design PIPELINE.md §1): pursued (Selected) opportunities drop out of the
+// Opportunities triage list when ExcludeSelected is set.
+func TestService_List_ExcludeSelected(t *testing.T) {
+	ctx := context.Background()
+	s := newTestStore(t)
+	now := time.Date(2026, 6, 9, 0, 0, 0, 0, time.UTC)
+
+	// An un-pursued (scored) opportunity stays in the triage queue.
+	if err := s.Save(ctx, baseOpp("queued", 0.8, &now)); err != nil {
+		t.Fatalf("Save: %v", err)
+	}
+	// A pursued opportunity must drop out of the queue.
+	pursued := baseOpp("pursued", 0.9, &now)
+	pursued.Selected = true
+	pursued.SelectedAt = &now
+	if err := s.Save(ctx, pursued); err != nil {
+		t.Fatalf("Save: %v", err)
+	}
+
+	svc := dashboard.NewService(s)
+
+	// Without ExcludeSelected both opportunities are returned.
+	all, err := svc.List(ctx, dashboard.ListOptions{Now: now})
+	if err != nil {
+		t.Fatalf("List: %v", err)
+	}
+	if len(all) != 2 {
+		t.Fatalf("expected 2 rows without ExcludeSelected, got %d", len(all))
+	}
+
+	// With ExcludeSelected the pursued opportunity is filtered out.
+	rows, err := svc.List(ctx, dashboard.ListOptions{Now: now, ExcludeSelected: true})
+	if err != nil {
+		t.Fatalf("List: %v", err)
+	}
+	if len(rows) != 1 {
+		t.Fatalf("expected 1 row with ExcludeSelected, got %d", len(rows))
+	}
+	if rows[0].ID != "queued" {
+		t.Fatalf("expected the queued opportunity to remain, got %q", rows[0].ID)
+	}
+}
+
 func TestService_List_StageFilter(t *testing.T) {
 	ctx := context.Background()
 	now := time.Date(2026, 6, 9, 0, 0, 0, 0, time.UTC)
