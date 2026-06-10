@@ -52,6 +52,8 @@ type OpportunityRow struct {
 	Agency string
 	// NAICSCode is the primary NAICS code.
 	NAICSCode string
+	// SolicitationNum is the SAM.gov solicitation number (shown as "SOL#").
+	SolicitationNum string
 	// Score is the bid/no-bid score (0.0–1.0), zero if not yet scored.
 	Score float64
 	// ReasoningSnippet is the Scorer's reasoning text.
@@ -158,6 +160,7 @@ func toRow(opp *opportunity.Opportunity, stage Stage, now time.Time) Opportunity
 		Title:            opp.Title,
 		Agency:           opp.Agency,
 		NAICSCode:        opp.NAICSCode,
+		SolicitationNum:  opp.SolicitationNum,
 		Score:            opp.Score,
 		ReasoningSnippet: opp.ScoreReasoning,
 		Recommendation:   opp.Recommendation,
