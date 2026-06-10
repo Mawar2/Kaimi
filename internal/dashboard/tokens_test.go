@@ -76,3 +76,31 @@ func TestStyleTagLoadsNoExternalAssets(t *testing.T) {
 		}
 	}
 }
+
+func TestStyleTagContainsAppShellStyles(t *testing.T) {
+	got := string(StyleTag())
+	// One selector per app.css family (issue #150): shell, sidebar, page,
+	// stats, toolbar, opportunity list, drawer content.
+	wants := []string{
+		"--sidebar: 248px",
+		".app{",
+		".side{",
+		".nav-item.on{",
+		".page-head",
+		".stats{",
+		".seg button.on{",
+		".sortbtn",
+		".opp-list .day",
+		".orow",
+		".rec-min--bid",
+		".empty2",
+		".dr-top",
+		".reasons li",
+		".must.ok .mc",
+	}
+	for _, want := range wants {
+		if !strings.Contains(got, want) {
+			t.Errorf("StyleTag() missing app style %q", want)
+		}
+	}
+}

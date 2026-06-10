@@ -30,6 +30,10 @@ type ListOptions struct {
 	Stage *Stage
 	// MinScore filters to opportunities with Score >= MinScore. 0 means no filter.
 	MinScore float64
+	// Recommendation filters to a specific scorer recommendation ("BID",
+	// "REVIEW", "NO_BID") for the Triage segmented filter (issue #150).
+	// Empty means no filter.
+	Recommendation string
 	// SortBy selects the sort field. Defaults to SortByDeadline when zero.
 	SortBy SortKey
 	// Now is injected for DeadlineSoon computation. Zero value disables the flag.
@@ -52,6 +56,9 @@ type OpportunityRow struct {
 	Score float64
 	// ReasoningSnippet is the Scorer's reasoning text.
 	ReasoningSnippet string
+	// Recommendation is the scorer recommendation ("BID", "REVIEW", "NO_BID"),
+	// empty when not yet scored.
+	Recommendation string
 	// Stage is the derived pipeline stage.
 	Stage Stage
 	// ResponseDeadline is the proposal due date (zero if not set).
@@ -60,6 +67,9 @@ type OpportunityRow struct {
 	LastUpdated time.Time
 	// DeadlineSoon is true when ResponseDeadline is upcoming and within 7 days of Now.
 	DeadlineSoon bool
+	// CreatedAt is when the opportunity was first saved (drives the
+	// "NEW TODAY" day grouping on the Triage screen).
+	CreatedAt time.Time
 }
 
 // Service provides read-only dashboard views over a store.Store.
@@ -90,6 +100,9 @@ func (svc *Service) List(ctx context.Context, opts ListOptions) ([]OpportunityRo
 	for _, opp := range opps {
 		stage := DeriveStage(opp)
 		if opts.Stage != nil && stage != *opts.Stage {
+			continue
+		}
+		if opts.Recommendation != "" && opp.Recommendation != opts.Recommendation {
 			continue
 		}
 		rows = append(rows, toRow(opp, stage, opts.Now))
@@ -137,9 +150,11 @@ func toRow(opp *opportunity.Opportunity, stage Stage, now time.Time) Opportunity
 		NAICSCode:        opp.NAICSCode,
 		Score:            opp.Score,
 		ReasoningSnippet: opp.ScoreReasoning,
+		Recommendation:   opp.Recommendation,
 		Stage:            stage,
 		ResponseDeadline: opp.ResponseDeadline,
 		LastUpdated:      opp.UpdatedAt,
+		CreatedAt:        opp.CreatedAt,
 		DeadlineSoon:     isDeadlineSoon(opp.ResponseDeadline, now),
 	}
 }
