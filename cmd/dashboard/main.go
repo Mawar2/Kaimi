@@ -18,6 +18,7 @@ import (
 	"github.com/Mawar2/Kaimi/internal/document"
 	"github.com/Mawar2/Kaimi/internal/finalreview"
 	"github.com/Mawar2/Kaimi/internal/googledocs"
+	"github.com/Mawar2/Kaimi/internal/ingest"
 	"github.com/Mawar2/Kaimi/internal/outline"
 	"github.com/Mawar2/Kaimi/internal/proposal"
 	"github.com/Mawar2/Kaimi/internal/scorer"
@@ -52,10 +53,11 @@ func newMux(h *dashboard.Handler) *http.ServeMux {
 // Final Review agent (deterministic checks by default; -live-review adds the
 // Gemini compliance pass over Vertex AI ADC).
 //
-// Note: the live compliance pass only fires once the orchestrator threads
-// solicitation document text into finalreview.Input.Documents (see #172); until
-// then it is constructed but skips for lack of documents.
-func newProposalService(s store.Store, basePath string, liveWriter, liveReview bool, profilePath string) (*proposal.Service, error) {
+// With -live-ingest, the proposal service ingests the solicitation attachments
+// (HTTP fetch → GCS store → Document AI / stdlib DOCX extraction) at draft time
+// and threads their text into the Writer and the live Final Review compliance
+// pass. Without it, ingestion is skipped and the pipeline behaves as before.
+func newProposalService(s store.Store, basePath string, liveWriter, liveReview, liveIngest bool, profilePath string) (*proposal.Service, error) {
 	docs, err := document.NewStore(basePath)
 	if err != nil {
 		return nil, fmt.Errorf("document store: %w", err)
@@ -110,6 +112,31 @@ func newProposalService(s store.Store, basePath string, liveWriter, liveReview b
 		log.Printf("Final Review: deterministic checks only (pass -live-review for Gemini compliance)")
 	}
 
+	// Document ingestion is opt-in via -live-ingest. A true nil interface (not a
+	// typed-nil) is essential so proposal.Service's `Ingest == nil` check skips it.
+	var ingestor proposal.Ingestor
+	if liveIngest {
+		projectID := envOr("GCP_PROJECT_ID", "")
+		bucket := envOr("GCS_SOLICITATIONS_BUCKET", "")
+		processorID := envOr("DOCUMENTAI_PROCESSOR_ID", "")
+		if projectID == "" || bucket == "" || processorID == "" {
+			return nil, fmt.Errorf("-live-ingest requires GCP_PROJECT_ID, GCS_SOLICITATIONS_BUCKET, and DOCUMENTAI_PROCESSOR_ID")
+		}
+		ctx := context.Background()
+		gcs, _, err := ingest.NewGCSStore(ctx, bucket)
+		if err != nil {
+			return nil, fmt.Errorf("gcs store: %w", err)
+		}
+		docAI, _, err := ingest.NewDocumentAIExtractor(ctx, projectID, envOr("DOCUMENTAI_LOCATION", "us"), processorID)
+		if err != nil {
+			return nil, fmt.Errorf("document ai extractor: %w", err)
+		}
+		ingestor = ingest.New(ingest.NewHTTPFetcher(nil, 0), gcs, ingest.NewRoutingExtractor(docAI))
+		log.Printf("Document ingestion: LIVE (bucket %s, Document AI processor %s)", bucket, processorID)
+	} else {
+		log.Printf("Document ingestion: off (pass -live-ingest to fetch + extract solicitation documents)")
+	}
+
 	return proposal.NewService(&proposal.Deps{
 		Opportunities: s,
 		Documents:     docs,
@@ -117,6 +144,7 @@ func newProposalService(s store.Store, basePath string, liveWriter, liveReview b
 		Writer:        w,
 		Review:        review,
 		Profile:       profile,
+		Ingest:        ingestor,
 	}), nil
 }
 
@@ -132,6 +160,7 @@ func run() error {
 	storePath := flag.String("store", "", "Path to the JSON store directory")
 	liveWriter := flag.Bool("live-writer", false, "Draft with the real Gemini writer (Vertex AI ADC; needs GCP_PROJECT_ID)")
 	liveReview := flag.Bool("live-review", false, "Run the Gemini compliance pass in Final Review (Vertex AI ADC; needs GCP_PROJECT_ID)")
+	liveIngest := flag.Bool("live-ingest", false, "Ingest solicitation documents (GCS + Document AI; needs GCP_PROJECT_ID, GCS_SOLICITATIONS_BUCKET, DOCUMENTAI_PROCESSOR_ID)")
 	profilePath := flag.String("profile", "", "Capability profile JSON for grounding the writer (optional)")
 	flag.Parse()
 
@@ -144,7 +173,7 @@ func run() error {
 		return fmt.Errorf("failed to initialize store: %w", err)
 	}
 
-	proposals, err := newProposalService(s, *storePath, *liveWriter, *liveReview, *profilePath)
+	proposals, err := newProposalService(s, *storePath, *liveWriter, *liveReview, *liveIngest, *profilePath)
 	if err != nil {
 		return fmt.Errorf("failed to wire proposal service: %w", err)
 	}

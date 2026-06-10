@@ -5,7 +5,7 @@ Welcome to the **Kaimi** testing guide! This document provides step-by-step inst
 Kaimi pulls federal contracting opportunities from the SAM.gov API and evaluates them using Gemini 2.5 Pro via the Google Agent Development Kit (ADK). 
 
 ## Prerequisites
-1. **Go 1.21+** installed on your system.
+1. **Go 1.25+** installed on your system.
 2. A valid SAM.gov API key.
 3. A Google Cloud Project ID with Vertex AI enabled (for Gemini 2.5 Pro).
 
@@ -32,6 +32,14 @@ go test ./...
 ```
 **Expected Outcome**: You should see `ok` for every tested package. To run the live E2E test (real SAM.gov + Gemini, requires keys), use `KAIMI_E2E=1 go test -v ./internal/e2e`.
 
+### Reliability harness (`internal/eval`)
+
+We treat reliability as a *measured* discipline. `internal/eval` scores the Scorer's bid/no-bid
+accuracy against a labeled dataset and the Writer's **groundedness** — the fraction of drafted
+claims supported by the source facts, flagging any fabrication. The metric logic is unit-tested in
+CI against mocks (`go test ./internal/eval/...`); the live reliability report runs via
+`go run ./cmd/eval` (uses the keys above).
+
 ---
 
 ## 3. Running the Live Pipeline
@@ -47,7 +55,18 @@ go run ./cmd/pipeline --mode=live
 - **Scorer Agent** passes the eligible opportunities to Gemini 2.5 Pro to reason over the requirements and produce a `BID` or `NO_BID` score.
 - Scored opportunities are written to the local Queue store.
 
-## 4. Architecture Deep Dive
+---
+
+## 4. The full proposal flow (Zone 2)
+
+Once an opportunity is in the Queue and a human **selects** it, Zone 2 takes over: a deterministic
+Go conductor (`proposal.Service`, no LLM) threads it through **Outline → Writer → Final Review**.
+The Writer drafts sections grounded strictly on BlueMeta's capability profile and the **ingested
+solicitation documents** (fetched + parsed into GCS via `internal/ingest`), flagging gaps instead
+of fabricating. Final Review runs a compliance pass, and the flow **stops at a human approval gate
+— Kaimi never auto-submits**. See `hackathon/DEMO_SCRIPT.md` for a guided walkthrough.
+
+## 5. Architecture Deep Dive
 For a full view of how Kaimi uses the **Google Agent Development Kit (ADK)** to coordinate multiple agents (Zone 1 batch processing and Zone 2 per-proposal orchestration), please view the `ARCHITECTURE.md` file in the root directory. It contains a Mermaid diagram of the system flow.
 
 Thank you for reviewing Kaimi!
