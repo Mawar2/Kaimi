@@ -52,17 +52,17 @@ func TestRouting(t *testing.T) {
 			path:       "/",
 			wantStatus: http.StatusOK,
 			contains: []string{
-				"THE SEEKER",                   // branded lockup (#126/#141)
-				"stage-card",                   // ux-spec View 1: stage cards…
-				"Hunted Opp",                   // …and the table on the same page
-				`<a href="/opportunity/opp2">`, // detail links
+				"the seeker",               // branded lockup (CSS uppercases)
+				"in queue",                 // Triage stat strip
+				"Hunted Opp",               // …and the table on the same page
+				`href="/opportunity/opp2"`, // detail links
 			},
 		},
 		{
 			name:       "detail route is reachable",
 			path:       "/opportunity/opp2",
 			wantStatus: http.StatusOK,
-			contains:   []string{"Scored Opp", "Back to pipeline", "THE SEEKER"},
+			contains:   []string{"Scored Opp", "All opportunities", "the seeker"},
 		},
 		{
 			name:       "unknown opportunity renders the branded 404",
