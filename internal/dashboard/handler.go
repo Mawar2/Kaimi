@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/Mawar2/Kaimi/internal/opportunity"
+	"github.com/Mawar2/Kaimi/internal/proposal"
 )
 
 // Handler wraps the dashboard service and manages HTTP routing. Pages render
@@ -18,20 +19,35 @@ import (
 // kaimi/app.css, GitHub issue #150): an app shell with sidebar, the Triage
 // opportunities screen, and the drawer-style opportunity detail.
 type Handler struct {
-	svc          *Service
-	mux          *http.ServeMux
-	listTmpl     *template.Template
-	detailTmpl   *template.Template
-	notFoundTmpl *template.Template
-	Now          func() time.Time
+	svc           *Service
+	proposals     *proposal.Service // nil = read-only deployment
+	mux           *http.ServeMux
+	listTmpl      *template.Template
+	detailTmpl    *template.Template
+	proposalsTmpl *template.Template
+	workspaceTmpl *template.Template
+	notFoundTmpl  *template.Template
+	Now           func() time.Time
+}
+
+// Option configures optional Handler capabilities.
+type Option func(*Handler)
+
+// WithProposals enables the Zone 2 surfaces (select, proposals view,
+// workspace, gate actions) backed by the shared proposal lifecycle service.
+func WithProposals(svc *proposal.Service) Option {
+	return func(h *Handler) { h.proposals = svc }
 }
 
 // NewHandler initializes a new dashboard handler.
-func NewHandler(svc *Service) *Handler {
+func NewHandler(svc *Service, opts ...Option) *Handler {
 	h := &Handler{
 		svc: svc,
 		mux: http.NewServeMux(),
 		Now: time.Now,
+	}
+	for _, opt := range opts {
+		opt(h)
 	}
 	h.setupRoutes()
 	h.setupTemplates()
@@ -41,6 +57,28 @@ func NewHandler(svc *Service) *Handler {
 func (h *Handler) setupRoutes() {
 	h.mux.HandleFunc("/", h.handleList)
 	h.mux.HandleFunc("GET /opportunity/{id}", h.handleDetail)
+	// Zone 2 surfaces (issue #156): the bridge event, the command view,
+	// the workspace, and the gate actions. Action routes are registered
+	// method-agnostic with an explicit guard so a stray GET gets a 405
+	// instead of falling through to the catch-all list route.
+	h.mux.HandleFunc("/opportunity/{id}/select", postOnly(h.handleSelect))
+	h.mux.HandleFunc("GET /proposals", h.handleProposals)
+	h.mux.HandleFunc("GET /workspace/{id}", h.handleWorkspace)
+	h.mux.HandleFunc("/workspace/{id}/section/{sid}", postOnly(h.handleSectionSave))
+	h.mux.HandleFunc("/workspace/{id}/approve", postOnly(h.handleAction("approve")))
+	h.mux.HandleFunc("/workspace/{id}/changes", postOnly(h.handleAction("changes")))
+	h.mux.HandleFunc("/workspace/{id}/submit", postOnly(h.handleAction("submit")))
+}
+
+// postOnly rejects every method but POST on human-action routes.
+func postOnly(next http.HandlerFunc) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPost {
+			http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+			return
+		}
+		next(w, r)
+	}
 }
 
 // Inline SVG icons from the design handoff (app-screens.jsx /
@@ -94,7 +132,7 @@ const shellTmpl = `
         <span>Opportunities</span>
         <span class="count">{{.QueueCount}}</span>
       </a>
-      <a class="nav-item" href="/?stage=Awaiting+Human+Review">
+      <a class="nav-item{{if eq .ActiveNav "proposals"}} on{{end}}" href="/proposals">
         ` + iconProps + `
         <span>Proposals</span>
         {{if gt .NeedsCount 0}}<span class="needs">{{.NeedsCount}}</span>{{else}}<span class="count">{{.ActiveCount}}</span>{{end}}
@@ -229,8 +267,17 @@ const detailContentTmpl = `{{define "content"}}
   </div>
   {{end}}
 
-  {{if .Opp.URL}}
   <div class="art-row" style="margin-top:22px">
+    {{if .Opp.Selected}}
+    <a class="kbtn kbtn--secondary" href="/workspace/{{.Opp.ID}}" style="text-decoration:none">` + iconCheck + `In your proposals</a>
+    {{else if .CanSelect}}
+    <form method="POST" action="/opportunity/{{.Opp.ID}}/select" style="margin:0">
+      <button class="kbtn kbtn--select kbtn--lg">` + iconArrow + `Select to pursue</button>
+    </form>
+    {{end}}
+  </div>
+  {{if .Opp.URL}}
+  <div class="art-row" style="margin-top:10px">
     <a class="artifact2" href="{{.Opp.URL}}">` + iconLink + `View solicitation</a>
   </div>
   {{end}}
@@ -323,6 +370,9 @@ func (h *Handler) setupTemplates() {
 		"recPill":      RecommendationPill,
 		"deadlinePill": DeadlinePill,
 		"metaTag":      MetaTag,
+		"miniPipe":     miniPipe,
+		"wPipe":        wPipe,
+		"propChip":     propChip,
 		"orDash": func(s string) string {
 			if s == "" {
 				return "—"
@@ -334,6 +384,10 @@ func (h *Handler) setupTemplates() {
 		template.New("list").Funcs(funcMap).Parse(shellTmpl)).Parse(listContentTmpl))
 	h.detailTmpl = template.Must(template.Must(
 		template.New("detail").Funcs(funcMap).Parse(shellTmpl)).Parse(detailContentTmpl))
+	h.proposalsTmpl = template.Must(template.Must(
+		template.New("proposals").Funcs(funcMap).Parse(shellTmpl)).Parse(proposalsContentTmpl))
+	h.workspaceTmpl = template.Must(template.Must(
+		template.New("workspace").Funcs(funcMap).Parse(shellTmpl)).Parse(workspaceContentTmpl))
 	h.notFoundTmpl = template.Must(template.New("notfound").Funcs(funcMap).Parse(notFoundTmplStr))
 }
 
@@ -532,6 +586,7 @@ type DetailData struct {
 	ScoreDisplay                                                          string // "82.0%" or "—"
 	Reasons                                                               []string
 	MustClass                                                             string // "ok" when recommended BID, "no" otherwise
+	CanSelect                                                             bool   // proposal service wired and the opp is unselected
 	DeadlineStr                                                           string // "2026-06-18" or "" when unset
 	DeadlineLabel                                                         string // "9 days" pill label
 	DeadlineDays                                                          int
@@ -564,6 +619,7 @@ func (h *Handler) handleDetail(w http.ResponseWriter, r *http.Request) {
 		DerivedStage:  DeriveStage(opp),
 		ScoreDisplay:  "—",
 		MustClass:     "no",
+		CanSelect:     h.proposals != nil && !opp.Selected,
 		DeadlineSoon:  isDeadlineSoon(opp.ResponseDeadline, now),
 		PostedDateStr: fmtDate(opp.PostedDate),
 		CreatedAtStr:  fmtDateTime(opp.CreatedAt),
@@ -571,6 +627,7 @@ func (h *Handler) handleDetail(w http.ResponseWriter, r *http.Request) {
 		ScoredAtStr:   fmtDateTimePtr(opp.ScoredAt),
 		SelectedAtStr: fmtDateTimePtr(opp.SelectedAt),
 	}
+	data.CanSelect = h.proposals != nil && !opp.Selected
 	if opp.Score > 0 {
 		data.ScorePct = int(math.Round(opp.Score * 100))
 		data.ScoreDisplay = fmt.Sprintf("%.1f%%", opp.Score*100)
