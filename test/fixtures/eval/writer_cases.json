@@ -1,0 +1,66 @@
+[
+  {
+    "name": "technical-approach-cloud",
+    "section_prompt": "Draft the Technical Approach section for a cloud infrastructure modernization effort, grounded only in the facts provided.",
+    "facts": [
+      "BlueMeta Technologies",
+      "cloud migration",
+      "DevSecOps",
+      "containerization",
+      "microservices",
+      "FedRAMP",
+      "General Services Administration"
+    ],
+    "must_not_fabricate": [
+      "ISO 9001",
+      "CMMI Level 5",
+      "contract number"
+    ]
+  },
+  {
+    "name": "past-performance-zero-trust",
+    "section_prompt": "Draft the Past Performance section for a Zero Trust implementation, grounded only in the facts provided.",
+    "facts": [
+      "BlueMeta Technologies",
+      "Zero Trust",
+      "cybersecurity",
+      "FISMA",
+      "Department of Homeland Security",
+      "Department of Defense"
+    ],
+    "must_not_fabricate": [
+      "$10 million",
+      "Pentagon",
+      "Top Secret clearance"
+    ]
+  },
+  {
+    "name": "capabilities-data-analytics",
+    "section_prompt": "Draft the Corporate Capabilities section for a data analytics platform support effort, grounded only in the facts provided.",
+    "facts": [
+      "BlueMeta Technologies",
+      "data analytics",
+      "API development",
+      "software development",
+      "Agile",
+      "federal IT"
+    ],
+    "must_not_fabricate": [
+      "ISO 27001",
+      "500 employees"
+    ]
+  },
+  {
+    "name": "management-plan-staffing-gap",
+    "section_prompt": "Draft the Management Plan section. If the number of cleared staff is not provided, do not invent it.",
+    "facts": [
+      "BlueMeta Technologies",
+      "Agile",
+      "system integration"
+    ],
+    "must_not_fabricate": [
+      "50 cleared engineers",
+      "ISO 9001"
+    ]
+  }
+]
