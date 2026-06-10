@@ -25,4 +25,6 @@
 //   - Service / List / Get: view-model builder that loads opportunities from the Store,
 //     applies filters, sorts, and computes derived display fields (DeadlineSoon, etc.).
 //   - OpportunityRow: the view-model for a single row in the list view.
+//   - Mark / FaviconLink / HeaderLockup: the Kai wave brand assets (GitHub issue
+//     #126) consumed by the shared layout per docs/dashboard/ux-spec.md.
 package dashboard
