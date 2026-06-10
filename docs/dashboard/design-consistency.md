@@ -7,6 +7,10 @@ visual consistency with the locked design handoff. One surface at a time, audite
 verified **in a real browser** (gstack-browse) against
 `design-handoff/Kaimi-handoff/kaimi/project/design_handoff_kaimi/screenshots/`.
 
+> Note: each surface lands as its own PR off `main`, so this shared log is touched by
+> more than one open PR at a time — expect a trivial append-merge when they land in
+> sequence (keep every surface's entry).
+
 Hard rules (from `hackathon/design-consistency-agent.txt`): define design values once and
 reuse (`StyleTag()` tokens + `components.go` helpers — never re-hardcode per page); no
 external assets/fonts (inline SVG + base64 OK); amber `#E8870E`/`#FFF3E0` is reserved
@@ -33,7 +37,7 @@ serving the **old** bytes and silently mask your change). Confirm with
 | Surface | Route | Reference shot | Audited | Fixed | Browser-verified | 2× clean design-review |
 |---|---|---|---|---|---|---|
 | Triage | `/` | `01-opportunities.png` | ✅ 06-10 | typography only | ✅ fonts | ☐ |
-| Opportunity detail | `/opportunity/{id}` | `02-opportunity-drawer*.png` | ☐ | ☐ | ☐ | ☐ |
+| Opportunity detail | `/opportunity/{id}` | `02-opportunity-drawer.png` | ✅ 06-10 | tokens (h2 + .kv) | ✅ no regression | ☐ |
 | Proposals command | `/proposals` | `03-proposals-command.png` | ☐ | ☐ | ☐ | ☐ |
 | Workspace | `/workspace/{id}` | `04/06/07-workspace*.png` | ☐ | ☐ | ☐ | ☐ |
 | Shared chrome (header/nav/states/responsive) | all | — | partial | typography | ✅ fonts | ☐ |
@@ -41,7 +45,7 @@ serving the **old** bytes and silently mask your change). Confirm with
 
 ## Iteration log
 
-### 2026-06-10 — Global typography: self-host Figtree + Geist Mono
+### 2026-06-10 — Global typography: self-host Figtree + Geist Mono (PR #203, issue #202)
 
 **Divergence (the headline one).** `StyleTag()` declared `--font-sans: "Figtree"` /
 `--font-mono: "Geist Mono"` but embedded **no `@font-face`**, so the served UI fell back
@@ -58,16 +62,29 @@ call; the handoff screenshots show IBM Plex Mono only because the comps loaded t
 fallback. Variable builds chosen because the type tokens use non-standard weights
 (420/430/550/650). SIL OFL, license files shipped.
 
-**Changes.** `internal/dashboard/fonts.go` (new — `//go:embed` + base64 `@font-face`),
-`internal/dashboard/fonts/{figtree-variable.woff2,geist-mono-variable.woff2,*-OFL.txt}`,
-`StyleTag()` prepends `fontFaceCSS`, stale "falls back to system fonts" comment corrected,
-`tokens_test.go` extended (`TestStyleTagSelfHostsDesignedFonts`), `ux-spec.md` updated.
-
 **Verified (real browser, screenshot-diff verdict: PASS).** `document.fonts` →
 `Figtree:loaded | Geist Mono:loaded`; H1 renders Figtree, NAICS mono renders Geist Mono;
-**0** external font requests; no console errors; served page `+62.5KB` (the embedded
-faces). `make all`-equivalent green (module build + all package tests + `golangci-lint`
-clean on `internal/dashboard`). Typography now matches the comps.
+**0** external font requests; no console errors; served page `+62.5KB`. `make all`-green.
+
+### 2026-06-10 — Detail surface: route re-hardcodes through tokens (PR pending, issue #205)
+
+**Divergence.** `/opportunity/{id}` is structurally faithful to ux-spec §View 2 (drawer
+header rendered inline + `<h2>` full-record sections), but it re-hardcoded design values
+per page: the title `<h2 style="font:700 21px/1.2 …">` **duplicated** the design system's
+`.dr-top h2` rule (and the inline override sidestepped the designed `max-width:22ch`); the
+page-local `.kv` / `.detail-pre` styles used magic numbers (`font-size:13.5px`,
+`padding:0.4rem 0.7rem`, `padding:0.75rem`) instead of `--t-*` / `--s-*` tokens.
+
+**Fix.** Title typography now comes from `.dr-top h2` (inline style removed). `.kv` table
+text → `font: var(--t-small)`, padding → `var(--s-2) var(--s-3)`; `.detail-pre` padding →
+`var(--s-3)`. The full-record table has no comp to match, so the token scale is its only
+correct reference. Also corrected the stale ux-spec "Non-Goals" note (Select-to-pursue is
+implemented, #156).
+
+**Verified (real browser, no regression).** `.dr-top h2` computes to **21px / 700**,
+maxWidth **22ch (265.74px)**, **no inline style attr**; `.kv td` padding **8px 12px**,
+size **13px**, line-height **18.85px** (the designed 1.45 rhythm); no console errors.
+TDD `TestDetailRoutesThroughDesignTokens` added; `make all`-green; `golangci-lint` clean.
 
 ## Audit backlog (found while auditing; not yet ticketed/fixed)
 
@@ -80,3 +97,5 @@ clean on `internal/dashboard`). Typography now matches the comps.
   under `./design-store/queue/` covering every RecommendationPill (BID/NO_BID/REVIEW),
   DeadlinePill urgency band, FitRing fit band, and StatusBadge ProposalStatus for the
   dedicated component pass.
+- **Design-review:** run `gstack-design-review` to two consecutive clean passes per surface
+  (the END gate) once surfaces are individually fixed.

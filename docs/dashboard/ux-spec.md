@@ -351,7 +351,7 @@ type DetailData struct {
 ## Non-Goals (explicitly out of scope for Wave 3)
 
 - Pagination (the list shows all matching cards; defer to Wave 4 if needed)
-- Write operations via the dashboard (no "Select to pursue" button, no status changes — the handoff drawer's CTA is out of scope)
+- Write operations via the dashboard — **partly superseded**: the **Select to pursue** CTA is now implemented (the Zone-1→Zone-2 bridge, #156): the detail page posts to `/opportunity/{id}/select` and links the opportunity into `/workspace/{id}`. Other write operations (editing record fields, arbitrary status changes) remain out of scope.
 - Authentication or session management
 - WebSocket live-push (meta-refresh is sufficient for Wave 3)
 - External CSS files, icon libraries, or *fetched* fonts (the handoff stylesheets are embedded verbatim; the Figtree/Geist Mono faces are embedded as inline base64 `@font-face`, never fetched over the network — see Brand color mapping above)
