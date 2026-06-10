@@ -149,3 +149,52 @@ func contains(s, substr string) bool {
 		return false
 	})()
 }
+
+// TestHandleListAdoptsDesignSystem verifies the overview layout consumes the
+// brand and design-system assets (GitHub issue #141) instead of the
+// pre-handoff placeholder styling.
+func TestHandleListAdoptsDesignSystem(t *testing.T) {
+	ctx := context.Background()
+	s, err := store.NewJSONStore(t.TempDir())
+	if err != nil {
+		t.Fatalf("failed to create store: %v", err)
+	}
+	now := time.Date(2026, 6, 9, 12, 0, 0, 0, time.UTC)
+	if err := s.Save(ctx, &opportunity.Opportunity{
+		ID: "one", Title: "Sample", Agency: "Agency", UpdatedAt: now,
+	}); err != nil {
+		t.Fatalf("failed to seed opportunity: %v", err)
+	}
+
+	h := dashboard.NewHandler(dashboard.NewService(s))
+	h.Now = func() time.Time { return now }
+
+	req := httptest.NewRequest("GET", "/", http.NoBody)
+	rr := httptest.NewRecorder()
+	h.ServeHTTP(rr, req)
+	if rr.Code != http.StatusOK {
+		t.Fatalf("got status %v, want %v", rr.Code, http.StatusOK)
+	}
+	body := rr.Body.String()
+
+	for _, want := range []string{
+		`rel="icon"`,         // brand favicon (FaviconLink)
+		"--st-human:",        // design-system tokens present (StyleTag)
+		"#E8870E",            // the needs-human amber is defined
+		"THE SEEKER",         // header lockup (HeaderLockup)
+		"var(--st-human-bg)", // page styles expressed in token variables
+	} {
+		if !contains(body, want) {
+			t.Errorf("overview body missing design-system marker %q", want)
+		}
+	}
+
+	for _, ban := range []string{
+		"#fffbe6", "#f0c040", "#0057b8", "#fff0f0", // placeholder palette
+		"<h1>Kaimi Pipeline</h1>", // replaced by the lockup
+	} {
+		if contains(body, ban) {
+			t.Errorf("overview body still contains placeholder styling %q", ban)
+		}
+	}
+}
