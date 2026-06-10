@@ -88,6 +88,7 @@ func postOnly(next http.HandlerFunc) http.HandlerFunc {
 const (
 	iconQueue   = `<svg viewBox="0 0 24 24" fill="none"><path d="M4 6h16M4 12h16M4 18h10" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>`
 	iconProps   = `<svg viewBox="0 0 24 24" fill="none"><rect x="3" y="4" width="18" height="6" rx="2" stroke="currentColor" stroke-width="2"/><rect x="3" y="14" width="18" height="6" rx="2" stroke="currentColor" stroke-width="2"/></svg>`
+	iconArchive = `<svg viewBox="0 0 24 24" fill="none"><rect x="3" y="4" width="18" height="5" rx="1.5" stroke="currentColor" stroke-width="2"/><path d="M5 9v9a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V9" stroke="currentColor" stroke-width="2" stroke-linecap="round"/><path d="M10 13h4" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>`
 	iconSearch  = `<svg viewBox="0 0 24 24" fill="none"><circle cx="11" cy="11" r="7" stroke="currentColor" stroke-width="2"/><path d="M16 16l4 4" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>`
 	iconSliders = `<svg viewBox="0 0 24 24" fill="none"><path d="M4 8h10M18 8h2M4 16h2M10 16h10" stroke="currentColor" stroke-width="2" stroke-linecap="round"/><circle cx="16" cy="8" r="2.4" stroke="currentColor" stroke-width="2"/><circle cx="8" cy="16" r="2.4" stroke="currentColor" stroke-width="2"/></svg>`
 	iconChev    = `<svg viewBox="0 0 24 24" fill="none"><path d="M9 6l6 6-6 6" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>`
@@ -138,6 +139,11 @@ const shellTmpl = `
         ` + iconProps + `
         <span>Proposals</span>
         {{if gt .NeedsCount 0}}<span class="needs">{{.NeedsCount}}</span>{{else}}<span class="count">{{.ActiveCount}}</span>{{end}}
+      </a>
+      <a class="nav-item{{if eq .ActiveNav "submitted"}} on{{end}}" href="/submitted">
+        ` + iconArchive + `
+        <span>Submitted</span>
+        <span class="count">{{.SubmittedCount}}</span>
       </a>
       <div class="spacer"></div>
       <div class="me">
@@ -399,11 +405,12 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 
 // shellData carries what the app shell (sidebar) needs on every page.
 type shellData struct {
-	PageTitle   string
-	ActiveNav   string // "opps" highlights the Opportunities nav item
-	QueueCount  int    // total opportunities in the queue
-	NeedsCount  int    // opportunities awaiting human review (amber badge)
-	ActiveCount int    // opportunities selected into proposal work
+	PageTitle      string
+	ActiveNav      string // "opps" highlights the Opportunities nav item
+	QueueCount     int    // total opportunities in the queue
+	NeedsCount     int    // opportunities awaiting human review (amber badge)
+	ActiveCount    int    // opportunities selected into proposal work
+	SubmittedCount int    // opportunities submitted to SAM.gov (the archive)
 }
 
 // OverviewData is the view-model for the Triage screen.
@@ -512,6 +519,8 @@ func (h *Handler) handleList(w http.ResponseWriter, r *http.Request) {
 			data.ActiveCount++
 		case StageSelected, StageInProposal, StageFinalized:
 			data.ActiveCount++
+		case StageSubmitted:
+			data.SubmittedCount++
 		}
 	}
 	for i := range rows {
@@ -657,6 +666,8 @@ func (h *Handler) handleDetail(w http.ResponseWriter, r *http.Request) {
 				data.ActiveCount++
 			case StageSelected, StageInProposal, StageFinalized:
 				data.ActiveCount++
+			case StageSubmitted:
+				data.SubmittedCount++
 			}
 		}
 	}
