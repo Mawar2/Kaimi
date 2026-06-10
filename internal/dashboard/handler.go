@@ -28,6 +28,7 @@ type Handler struct {
 	detailTmpl    *template.Template
 	proposalsTmpl *template.Template
 	workspaceTmpl *template.Template
+	submittedTmpl *template.Template
 	notFoundTmpl  *template.Template
 	Now           func() time.Time
 }
@@ -65,6 +66,7 @@ func (h *Handler) setupRoutes() {
 	// instead of falling through to the catch-all list route.
 	h.mux.HandleFunc("/opportunity/{id}/select", postOnly(h.handleSelect))
 	h.mux.HandleFunc("GET /proposals", h.handleProposals)
+	h.mux.HandleFunc("GET /submitted", h.handleSubmitted)
 	h.mux.HandleFunc("GET /workspace/{id}", h.handleWorkspace)
 	h.mux.HandleFunc("/workspace/{id}/section/{sid}", postOnly(h.handleSectionSave))
 	h.mux.HandleFunc("/workspace/{id}/approve", postOnly(h.handleAction("approve")))
@@ -117,7 +119,7 @@ const shellTmpl = `
   {{faviconLink}}
   {{styleTag}}
   <style>
-    a.nav-item, a.orow, a.pcard, a.artifact2 { text-decoration: none; color: inherit; }
+    a.nav-item, a.orow, a.pcard, a.artifact2, a.sortbtn { text-decoration: none; color: inherit; }
     a.orow { display: flex; }
     .seg form { display: contents; }
   </style>
@@ -396,6 +398,8 @@ func (h *Handler) setupTemplates() {
 		template.New("proposals").Funcs(funcMap).Parse(shellTmpl)).Parse(proposalsContentTmpl))
 	h.workspaceTmpl = template.Must(template.Must(
 		template.New("workspace").Funcs(funcMap).Parse(shellTmpl)).Parse(workspaceContentTmpl))
+	h.submittedTmpl = template.Must(template.Must(
+		template.New("submitted").Funcs(funcMap).Parse(shellTmpl)).Parse(submittedContentTmpl))
 	h.notFoundTmpl = template.Must(template.New("notfound").Funcs(funcMap).Parse(notFoundTmplStr))
 }
 
