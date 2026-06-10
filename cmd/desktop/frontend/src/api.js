@@ -7,9 +7,16 @@
    ============================================================ */
 import { KAIMI_OPPS } from './data.js';
 
-// recommendation proxy from fit band, until the Recommendation field
-// is surfaced on the dashboard row view-model.
-function recFromFit(fit){ return fit >= 70 ? "bid" : fit >= 40 ? "review" : "nobid"; }
+// Map the backend recommendation ("BID"/"NO_BID"/"REVIEW") to the design's
+// rec key. Falls back to a fit-band proxy when the Scorer hasn't set one.
+function recFromBackend(rec, fit){
+  switch ((rec || "").toUpperCase()) {
+    case "BID":    return "bid";
+    case "NO_BID": return "nobid";
+    case "REVIEW": return "review";
+    default:       return fit >= 70 ? "bid" : fit >= 40 ? "review" : "nobid";
+  }
+}
 
 // deadline label + escalation level from an ISO date string.
 function deadlineInfo(iso){
@@ -37,9 +44,9 @@ export async function getOpportunities(){
         title: r.Title || "(untitled opportunity)",
         agency: r.Agency || "",
         naics: r.NAICSCode || "",
-        sol: "",
+        sol: r.SolicitationNum || "",
         fit,
-        rec: recFromFit(fit),
+        rec: recFromBackend(r.Recommendation, fit),
         deadlineLabel: dl.label,
         deadlineLevel: r.DeadlineSoon ? "crit" : dl.level,
         isNew: true,
