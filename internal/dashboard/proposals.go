@@ -228,6 +228,7 @@ func (h *Handler) handleProposals(w http.ResponseWriter, r *http.Request) {
 			data.InFlight++
 			data.AgentCount++ // the gate holds one handoff
 		case "submitted":
+			data.SubmittedCount++
 		default:
 			data.InFlight++
 			data.AgentCount++
