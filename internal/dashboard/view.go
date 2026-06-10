@@ -34,6 +34,12 @@ type ListOptions struct {
 	// "REVIEW", "NO_BID") for the Triage segmented filter (issue #150).
 	// Empty means no filter.
 	Recommendation string
+	// ExcludeSelected drops opportunities a human has already pursued
+	// (Selected==true) from the results. The Opportunities triage queue is
+	// self-cleaning: once an opportunity is selected it moves into the
+	// Proposals/Submitted surfaces and is no longer a pending decision
+	// (see design PIPELINE.md §1).
+	ExcludeSelected bool
 	// SortBy selects the sort field. Defaults to SortByDeadline when zero.
 	SortBy SortKey
 	// Now is injected for DeadlineSoon computation. Zero value disables the flag.
@@ -99,6 +105,9 @@ func (svc *Service) List(ctx context.Context, opts ListOptions) ([]OpportunityRo
 	rows := make([]OpportunityRow, 0, len(opps))
 	for _, opp := range opps {
 		stage := DeriveStage(opp)
+		if opts.ExcludeSelected && opp.Selected {
+			continue
+		}
 		if opts.Stage != nil && stage != *opts.Stage {
 			continue
 		}
