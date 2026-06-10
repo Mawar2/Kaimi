@@ -52,6 +52,8 @@ type OpportunityRow struct {
 	Agency string
 	// NAICSCode is the primary NAICS code.
 	NAICSCode string
+	// SolicitationNum is the SAM.gov solicitation number (shown as "SOL#").
+	SolicitationNum string
 	// Score is the bid/no-bid score (0.0–1.0), zero if not yet scored.
 	Score float64
 	// ReasoningSnippet is the Scorer's reasoning text.
@@ -148,11 +150,7 @@ func (svc *Service) CountStages(ctx context.Context) (map[Stage]int, error) {
 	if err != nil {
 		return nil, fmt.Errorf("dashboard count stages: %w", err)
 	}
-	vals := make([]opportunity.Opportunity, len(ptrs))
-	for i, p := range ptrs {
-		vals[i] = *p
-	}
-	return CountByStage(vals), nil
+	return CountByStage(ptrs), nil
 }
 
 // toRow converts an Opportunity and its derived Stage to an OpportunityRow.
@@ -162,6 +160,7 @@ func toRow(opp *opportunity.Opportunity, stage Stage, now time.Time) Opportunity
 		Title:            opp.Title,
 		Agency:           opp.Agency,
 		NAICSCode:        opp.NAICSCode,
+		SolicitationNum:  opp.SolicitationNum,
 		Score:            opp.Score,
 		ReasoningSnippet: opp.ScoreReasoning,
 		Recommendation:   opp.Recommendation,

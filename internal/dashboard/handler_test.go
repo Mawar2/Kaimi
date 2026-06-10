@@ -326,6 +326,51 @@ func TestHandleDetail(t *testing.T) {
 	})
 }
 
+// TestDetailRoutesThroughDesignTokens proves the detail surface consumes the
+// design system rather than re-hardcoding values per page (issue #205): the
+// title typography comes from the shared .dr-top h2 rule (not an inline font),
+// and the page-local .kv / .detail-pre table styles use --t-* / --s-* tokens
+// instead of magic numbers. Guards the "define once, reuse" rule for this page.
+func TestDetailRoutesThroughDesignTokens(t *testing.T) {
+	s, err := store.NewJSONStore(t.TempDir())
+	if err != nil {
+		t.Fatalf("failed to create store: %v", err)
+	}
+	now := time.Date(2026, 6, 9, 12, 0, 0, 0, time.UTC)
+	seedDetailOpp(t, s, now)
+
+	h := dashboard.NewHandler(dashboard.NewService(s))
+	h.Now = func() time.Time { return now }
+	rr := httptest.NewRecorder()
+	h.ServeHTTP(rr, httptest.NewRequest("GET", "/opportunity/ztamod-001", http.NoBody))
+	body := rr.Body.String()
+
+	// The title must still render inside the drawer header, but its typography
+	// must come from .dr-top h2 — no inline font/letter-spacing re-hardcode.
+	for _, want := range []string{`class="dr-top"`, "<h2>"} {
+		if !contains(body, want) {
+			t.Errorf("detail body missing %q (title should render via .dr-top h2)", want)
+		}
+	}
+	// These literals are the per-page re-hardcodes this change removes.
+	for _, banned := range []string{
+		"<h2 style=",        // title must carry no inline typography (use .dr-top h2)
+		"font-size: 13.5px", // .kv magic number
+		"0.4rem 0.7rem",     // .kv padding magic numbers
+		"padding: 0.75rem",  // .detail-pre padding magic number
+	} {
+		if contains(body, banned) {
+			t.Errorf("detail page must not re-hardcode %q; route it through a token", banned)
+		}
+	}
+	// The page-local table styles must reference the token vocabulary.
+	for _, want := range []string{"var(--t-small)", "var(--s-"} {
+		if !contains(body, want) {
+			t.Errorf("detail page-local styles must use design tokens; missing %q", want)
+		}
+	}
+}
+
 // TestListLinksToDetail verifies table rows link to their detail page (#111).
 func TestListLinksToDetail(t *testing.T) {
 	s, err := store.NewJSONStore(t.TempDir())
