@@ -1,5 +1,7 @@
 # Developer Setup Guide - Kaimi Project
 
+**Last updated:** 2026-06-09
+
 Welcome to the Kaimi project! This guide will help you get set up for development.
 
 ## Your GCP Access
@@ -7,7 +9,7 @@ Welcome to the Kaimi project! This guide will help you get set up for developmen
 You've been granted access to the **kaimi-seeker** GCP project with the following permissions:
 
 ### Roles Granted
-- ✅ **Vertex AI Admin** (`roles/aiplatform.admin`) - Full access to build and manage models with Gemini 3 Pro
+- ✅ **Vertex AI Admin** (`roles/aiplatform.admin`) - Full access to build and manage models with Gemini 2.5 Pro
 - ✅ **Viewer** (`roles/viewer`) - View all project resources
 - ✅ **Secret Manager Secret Accessor** (`roles/secretmanager.secretAccessor`) - Read API keys and secrets
 
@@ -79,7 +81,7 @@ gcloud auth application-default login
 ```
 
 This allows your local Go code to access:
-- Vertex AI (Gemini 3 Pro)
+- Vertex AI (Gemini 2.5 Pro)
 - Secret Manager (SAM.gov API key)
 - Other GCP services
 
@@ -95,7 +97,7 @@ gcloud ai models list --region=us-east4 --limit=5
 gcloud secrets versions access latest --secret=samgov-api-key
 ```
 
-You should see: `SAM-1c27e3e7-1fb5-4f85-bece-adb7d8b77dec`
+You should see your SAM.gov API key value (it starts with `SAM-`). Never paste the raw key into docs or commit it.
 
 ---
 
@@ -290,24 +292,22 @@ make clean      # Remove build artifacts
 
 ---
 
-## Current Phase: Phase 0
+## Project State
 
-**What We're Building Right Now:**
-- ✅ Project foundation (done)
-- ✅ Go module and structure (done)
-- ✅ Core interfaces (Store, SAM.gov Client) (done)
-- ✅ Opportunity schema (done)
-- 🚧 Hunter agent implementation (in progress)
+**Built and deployed:**
+- ✅ Project foundation, Go module, core interfaces (`Store`, SAM.gov client)
+- ✅ `Opportunity` schema and the `AgentResult` contract
+- ✅ Zone-1 pipeline (Hunter → Scorer → Queue) deployed as the `kaimi-pipeline` Cloud Run Job, run on Cloud Scheduler (07:00 / 12:00 / 17:00 ET); scored JSON store persisted to `gs://kaimi-seeker-queue`
+- ✅ Zone-2 agents (Manager / Outline / Writer / Final Review / gdocs)
 
-**What We're NOT Building Yet:**
-- ❌ Scorer agent (Phase 1)
-- ❌ Manager agent (Phase 2)
-- ❌ Proposal writers (Phase 3)
-- ❌ Firestore database (Phase 1)
-- ❌ Cloud Scheduler (Phase 1)
+**In active development:**
+- 🚧 Web and desktop dashboards over the `internal/dashboard` data layer
+
+**Optional / future:**
+- Firestore swap behind the `Store` interface (no agent code changes required)
 
 **Scope Discipline:**
-Only build Phase 0 components. Don't build ahead. See ARCHITECTURE.md for details.
+Build the full product, but keep every ticket tightly scoped to its acceptance criteria. Don't gold-plate. See ARCHITECTURE.md and CLAUDE.md for details.
 
 ---
 
@@ -315,7 +315,7 @@ Only build Phase 0 components. Don't build ahead. See ARCHITECTURE.md for detail
 
 You have full admin access to Vertex AI. You can:
 
-### Use Gemini 3 Pro
+### Use Gemini 2.5 Pro
 
 ```go
 // Example: Using Vertex AI in Go
@@ -351,7 +351,7 @@ You can read secrets (but not create/modify them).
 gcloud secrets versions access latest --secret=samgov-api-key
 
 # In Go code (using Google ADK)
-# The Hunter agent will use this for SAM.gov API calls
+# The Hunter agent uses this for SAM.gov API calls in the deployed pipeline
 ```
 
 ---

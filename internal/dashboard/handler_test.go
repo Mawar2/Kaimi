@@ -75,7 +75,7 @@ func TestHandleList(t *testing.T) {
 				"Deadline Soon",
 				"Deadline Late",
 				"Not Scored",
-				"deadline-soon", // visual flag class
+				"kdead--crit", // deadline pill at 2 days (designed urgency treatment)
 			},
 		},
 		{
@@ -181,7 +181,7 @@ func TestHandleListAdoptsDesignSystem(t *testing.T) {
 		`rel="icon"`,         // brand favicon (FaviconLink)
 		"--st-human:",        // design-system tokens present (StyleTag)
 		"#E8870E",            // the needs-human amber is defined
-		"THE SEEKER",         // header lockup (HeaderLockup)
+		"the seeker",         // header lockup (HeaderLockup)
 		"var(--st-human-bg)", // page styles expressed in token variables
 	} {
 		if !contains(body, want) {
@@ -265,11 +265,11 @@ func TestHandleDetail(t *testing.T) {
 			"kdead--near",                  // DeadlinePill at 9 days
 			`class="ktag"`,                 // MetaTag for NAICS/SOL
 			`id="eligibility-placeholder"`, // Phase 1+ placeholder per ux-spec
-			"Back to pipeline",             // navigation
-			"View on SAM.gov",              // solicitation link
+			"All opportunities",            // back link
+			"View solicitation",            // solicitation link
 			"Scored",                       // derived stage
 			`http-equiv="refresh"`,         // live page keeps auto-refresh
-			"THE SEEKER",                   // shared branded layout
+			"the seeker",                   // shared branded layout
 		} {
 			if !contains(body, want) {
 				t.Errorf("detail body missing %q", want)
@@ -340,7 +340,99 @@ func TestListLinksToDetail(t *testing.T) {
 
 	rr := httptest.NewRecorder()
 	h.ServeHTTP(rr, httptest.NewRequest("GET", "/", http.NoBody))
-	if !contains(rr.Body.String(), `<a href="/opportunity/ztamod-001">`) {
+	if !contains(rr.Body.String(), `href="/opportunity/ztamod-001"`) {
 		t.Errorf("list table should link rows to their detail page")
 	}
+}
+
+// TestTriageScreen verifies the designed Opportunities app surface
+// (GitHub issue #150; visual source: design handoff Kaimi App.html).
+func TestTriageScreen(t *testing.T) {
+	s, err := store.NewJSONStore(t.TempDir())
+	if err != nil {
+		t.Fatalf("failed to create store: %v", err)
+	}
+	now := time.Date(2026, 6, 10, 12, 0, 0, 0, time.UTC)
+	seedDetailOpp(t, s, now) // scored BID, created 10 days ago
+	if err := s.Save(context.Background(), &opportunity.Opportunity{
+		ID: "fresh-1", Title: "Fresh Today Opp", Agency: "GSA",
+		Recommendation: "REVIEW", Score: 0.55, ScoredAt: &now,
+		CreatedAt: now.Add(-2 * time.Hour), UpdatedAt: now,
+	}); err != nil {
+		t.Fatalf("seed: %v", err)
+	}
+
+	h := dashboard.NewHandler(dashboard.NewService(s))
+	h.Now = func() time.Time { return now }
+
+	t.Run("app shell and triage furniture", func(t *testing.T) {
+		rr := httptest.NewRecorder()
+		h.ServeHTTP(rr, httptest.NewRequest("GET", "/", http.NoBody))
+		body := rr.Body.String()
+		for _, want := range []string{
+			`class="app"`,         // shell grid
+			`class="side"`,        // sidebar
+			"the seeker",          // lockup sub-label
+			"Pipeline",            // nav section label
+			">Triage<",            // page-head eyebrow
+			">Opportunities</h1>", // H1
+			"in queue",            // stat strip
+			"Added today",         // stat strip
+			"Top fit score",       // stat strip
+			`class="seg"`,         // segmented filter
+			"To pursue",           // segment labels
+			"Needs review",
+			"New today",        // day group for fresh-1
+			`class="orow new"`, // new-dot row variant
+			`class="kfit"`,     // FitRing in rows
+			"rec-min--bid",     // recommendation word variants
+			"rec-min--review",
+			"Fresh Today Opp",
+			"Zero Trust Architecture Modernization",
+		} {
+			if !contains(body, want) {
+				t.Errorf("triage screen missing %q", want)
+			}
+		}
+		if contains(body, "<table") {
+			t.Errorf("triage screen must render row cards, not the old table")
+		}
+	})
+
+	t.Run("segments filter by recommendation", func(t *testing.T) {
+		rr := httptest.NewRecorder()
+		h.ServeHTTP(rr, httptest.NewRequest("GET", "/?rec=REVIEW", http.NoBody))
+		body := rr.Body.String()
+		if !contains(body, "Fresh Today Opp") || contains(body, "Zero Trust Architecture Modernization") {
+			t.Errorf("rec=REVIEW should keep only REVIEW rows")
+		}
+	})
+
+	t.Run("empty state when nothing matches", func(t *testing.T) {
+		rr := httptest.NewRecorder()
+		h.ServeHTTP(rr, httptest.NewRequest("GET", "/?rec=NO_BID", http.NoBody))
+		if !contains(rr.Body.String(), "empty2") {
+			t.Errorf("no matches should render the designed empty state")
+		}
+	})
+
+	t.Run("detail page carries drawer-style header", func(t *testing.T) {
+		rr := httptest.NewRecorder()
+		h.ServeHTTP(rr, httptest.NewRequest("GET", "/opportunity/ztamod-001", http.NoBody))
+		body := rr.Body.String()
+		for _, want := range []string{
+			`class="app"`,                  // detail lives in the shell too
+			`class="dr-top"`,               // drawer-style top block
+			">FIT<",                        // 92px ring sublabel
+			"Why Kaimi scored this",        // reasons section (CSS uppercases)
+			"Must-have requirements",       // checklist section (CSS uppercases)
+			`class="must ok"`,              // checklist item
+			"View solicitation",            // ghost link
+			`id="eligibility-placeholder"`, // ux-spec field retained
+		} {
+			if !contains(body, want) {
+				t.Errorf("detail missing %q", want)
+			}
+		}
+	})
 }

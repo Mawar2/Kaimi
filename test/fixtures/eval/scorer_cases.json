@@ -1,0 +1,30 @@
+[
+  {
+    "name": "cloud-migration-strong-bid",
+    "opportunity_fixture": "opp_cloud_migration.json",
+    "expected_recommendation": "BID",
+    "expected_reason_keywords": ["NAICS", "cloud"]
+  },
+  {
+    "name": "zero-trust-strong-bid",
+    "opportunity_fixture": "opp_zero_trust.json",
+    "expected_recommendation": "BID",
+    "expected_reason_keywords": ["Zero Trust"]
+  },
+  {
+    "name": "data-analytics-bid",
+    "opportunity_fixture": "opp_data_analytics.json",
+    "expected_recommendation": "BID",
+    "expected_reason_keywords": ["data analytics"]
+  },
+  {
+    "name": "janitorial-no-bid",
+    "opportunity_fixture": "opp_janitorial.json",
+    "expected_recommendation": "NO_BID"
+  },
+  {
+    "name": "construction-no-bid",
+    "opportunity_fixture": "opp_construction.json",
+    "expected_recommendation": "NO_BID"
+  }
+]
