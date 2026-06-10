@@ -49,8 +49,13 @@ func newMux(h *dashboard.Handler) *http.ServeMux {
 // lifecycle (epic #153): the Outline agent (cached docs client unless live
 // Google credentials are configured elsewhere), the Technical Writer (stub
 // by default; -live-writer drafts with Gemini over Vertex AI ADC), and the
-// Final Review agent (always real — its checks are deterministic).
-func newProposalService(s store.Store, basePath string, liveWriter bool, profilePath string) (*proposal.Service, error) {
+// Final Review agent (deterministic checks by default; -live-review adds the
+// Gemini compliance pass over Vertex AI ADC).
+//
+// Note: the live compliance pass only fires once the orchestrator threads
+// solicitation document text into finalreview.Input.Documents (see #172); until
+// then it is constructed but skips for lack of documents.
+func newProposalService(s store.Store, basePath string, liveWriter, liveReview bool, profilePath string) (*proposal.Service, error) {
 	docs, err := document.NewStore(basePath)
 	if err != nil {
 		return nil, fmt.Errorf("document store: %w", err)
@@ -88,12 +93,29 @@ func newProposalService(s store.Store, basePath string, liveWriter bool, profile
 		log.Printf("Technical Writer: stub mode (pass -live-writer for Gemini drafting)")
 	}
 
+	review := finalreview.New()
+	if liveReview {
+		projectID := envOr("GCP_PROJECT_ID", "")
+		if projectID == "" {
+			return nil, fmt.Errorf("-live-review requires GCP_PROJECT_ID")
+		}
+		checker, err := finalreview.NewGeminiComplianceChecker(context.Background(),
+			projectID, envOr("GCP_REGION", "us-east4"), envOr("GEMINI_MODEL", "gemini-2.5-pro"))
+		if err != nil {
+			return nil, fmt.Errorf("gemini compliance checker: %w", err)
+		}
+		review = finalreview.NewWithComplianceChecker(checker)
+		log.Printf("Final Review: LIVE Gemini compliance pass enabled (project %s)", projectID)
+	} else {
+		log.Printf("Final Review: deterministic checks only (pass -live-review for Gemini compliance)")
+	}
+
 	return proposal.NewService(&proposal.Deps{
 		Opportunities: s,
 		Documents:     docs,
 		Outline:       outline.New(docsClient),
 		Writer:        w,
-		Review:        finalreview.New(),
+		Review:        review,
 		Profile:       profile,
 	}), nil
 }
@@ -109,6 +131,7 @@ func run() error {
 	port := flag.Int("port", 8900, "Port to serve on")
 	storePath := flag.String("store", "", "Path to the JSON store directory")
 	liveWriter := flag.Bool("live-writer", false, "Draft with the real Gemini writer (Vertex AI ADC; needs GCP_PROJECT_ID)")
+	liveReview := flag.Bool("live-review", false, "Run the Gemini compliance pass in Final Review (Vertex AI ADC; needs GCP_PROJECT_ID)")
 	profilePath := flag.String("profile", "", "Capability profile JSON for grounding the writer (optional)")
 	flag.Parse()
 
@@ -121,7 +144,7 @@ func run() error {
 		return fmt.Errorf("failed to initialize store: %w", err)
 	}
 
-	proposals, err := newProposalService(s, *storePath, *liveWriter, *profilePath)
+	proposals, err := newProposalService(s, *storePath, *liveWriter, *liveReview, *profilePath)
 	if err != nil {
 		return fmt.Errorf("failed to wire proposal service: %w", err)
 	}
