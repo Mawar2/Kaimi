@@ -1,14 +1,33 @@
 # CLAUDE.md — Agent Operating System for Kaimi
 
-**Last updated:** 2026-06-03
+**Last updated:** 2026-06-09
 
 This document defines how Claude Code (and any other AI agent) operates in this repository. Read this file in full at the start of every session. Re-read after any major changes are committed.
+
+> **⚠️ CURRENT DIRECTIVE (2026-06-09) — READ FIRST. WE ARE NO LONGER IN "PHASE 0 ONLY" MODE.**
+>
+> Kaimi has evolved past the foundation phase. The full end-to-end pipeline is **built
+> and deployed** (Hunter → Scorer → Queue running in Cloud Run on a schedule; Zone-2
+> Manager/Outline/Writer/Final Review packages exist; web + desktop dashboards in
+> active development). **We are now driving to a complete, shippable product for the
+> Google AI Agents Challenge submission (deadline June 11, 2026).**
+>
+> What this means for you, the agent:
+> - **Do NOT refuse or defer work because it is "beyond Phase 0."** That constraint is
+>   retired. Building Zone-2 agents, dashboards, scheduling, and integrations is now
+>   in scope.
+> - **All other discipline still binds**: the ticket gate, TDD, two-layer testing,
+>   anti-bloat rules, forward-compatible schema design, legible Go, and
+>   **humans merge — agents never merge their own code.** Lifting the phase lock does
+>   not lift the quality bar.
+> - When a doc below still says "Phase 0 only," treat the directive in this banner as
+>   the source of truth and keep moving.
 
 ## Document Pointers — Read These First
 
 Before working on any ticket, ensure you have read:
 - **PROJECT.md** — what Kaimi is, who it's for (Malik/BlueMeta BD), success criteria (hackathon/30d/90d), what's out of scope
-- **ARCHITECTURE.md** — two-zone architecture, tech stack (Go/ADK/Gemini), provision lazily/design eagerly, Phase 0 scope discipline
+- **ARCHITECTURE.md** — two-zone architecture, tech stack (Go/ADK/Gemini), provision lazily/design eagerly, phase roadmap (note: the "Phase 0 only" scope lock in that doc is **retired** — see the directive banner at the top of this file)
 - **CONVENTIONS.md** — folder structure, where new code goes, anti-junk-drawer rules, Go naming conventions, testing requirements
 - **WORKFLOW.md** — engineering workflow contract, TDD requirement, AI sub-agent review, PR protocol
 
@@ -20,7 +39,7 @@ If any of these documents conflict with this CLAUDE.md, flag the conflict and ST
 - **Main Branch:** `main`
 - **Remote URL:** https://github.com/Mawar2/Kaimi.git
 - **Project:** Production infrastructure for BlueMeta Technologies' federal BD pipeline
-- **Current Phase:** Phase 0 (Foundation + Hunter agent)
+- **Current Phase:** Completing the full product (Phases 0–3 landed or in flight) for the June 11, 2026 Google AI Agents Challenge submission. Phase 0 is **done**: foundation, Hunter, `Opportunity` schema, and `Store` interface are all built and merged.
 
 ## The Hard Gate — Ticket Discipline
 
@@ -211,7 +230,7 @@ In addition to the automated CI review, when a feature is considered complete, B
   - Correct zone (Zone 1 scheduled vs. Zone 2 orchestrated)
   - Conforms to interface contract (Opportunity enrichment, Store interface)
   - Forward-compatible schema design
-  - **No building ahead of current phase** (Phase 0 only right now)
+  - **Scoped to its ticket** — the feature does what the ticket asks and no more (this replaced the old "Phase 0 only" rule; we now build the full product, but each ticket stays tightly scoped)
 - Code is clear, conventional, well-commented Go (legibility is a hard requirement)
 - No secrets in code
 - Security-sensitive changes flagged explicitly (Opportunity schema, Store interface, IAM, Secret Manager)
@@ -268,28 +287,30 @@ Write the justification citing which rubric criterion applied. No documentation 
 
 **Date every doc artifact** with `**Last updated:** YYYY-MM-DD` at the top. Docs older than 90 days without updates get re-evaluated.
 
-## Architecture Discipline — Phase 0 Scope Constraints
+## Architecture Discipline — Build the Full Product, Stay Forward-Compatible
 
-From ARCHITECTURE.md:
-> You are building **Phase 0 only**: project foundation, the Hunter agent, the `Opportunity` schema, and the queue interface.
+> **The "Phase 0 only" scope lock is retired (2026-06-09).** Earlier versions of this
+> section told you to build only the Hunter and to leave Scorer/Manager/Writer/Final
+> Review/scheduling for "later phases." That era is over. The pipeline is built and
+> deployed; we are completing the end-to-end product for the June 11 submission.
 
-**DO in Phase 0:**
-- ✅ Build the Hunter agent (pulls SAM.gov opportunities, filters by NAICS)
-- ✅ Design the `Opportunity` schema to hold all downstream fields (even though Phase 0 only populates Hunter's portion)
-- ✅ Create the `Store` interface (JSON-backed in Phase 0)
-- ✅ Keep code simple, conventional, well-commented Go
+**Now in scope (build it when there's an approved ticket):**
+- ✅ Zone-1 pipeline: Hunter → Scorer → Queue (built, deployed on a schedule)
+- ✅ Zone-2 per-proposal chain: Manager → Outline → Writer → Final Review, with the human review gate
+- ✅ Web dashboard and desktop dashboard over the same `internal/dashboard` data layer
+- ✅ Scheduling, GCP deployment, Google Docs/Drive integration, and supporting infra
+- ✅ The `AgentResult` contract (landed — every agent conforms to it)
 
-**DO NOT in Phase 0:**
-- ❌ Build Scorer, Manager, Outline, Writer, or Final Review agents
-- ❌ Deploy databases, Agent Engine, vector search, or scheduling infrastructure
-- ❌ Implement the `AgentResult` contract yet (just don't preclude it)
-- ❌ Build ahead of the current phase
+**Still binding — discipline did NOT change:**
+- ✅ Keep the `Opportunity` schema and `Store` interface **forward-compatible** — they're the highest integration risk; design eagerly so new agents plug in without retrofits
+- ✅ Keep code simple, conventional, well-commented Go (legibility is a hard requirement)
+- ✅ Every ticket stays **tightly scoped to its acceptance criteria** — "build the full product" is not license to gold-plate or sprawl. Build what the ticket asks, well.
+- ✅ Anti-bloat rules, the ticket gate, TDD, and human-merge all still apply.
 
-**When in doubt, build less.** If a decision requires knowledge of a later phase, leave a `// TODO(phase-N):` comment rather than building ahead.
-
-**Provision lazily, design eagerly:**
-- Stand up GCP services only when the phase needs them
+**Provision lazily, design eagerly** (still the rule for genuinely-future work):
+- Stand up a new GCP service / dependency only when an approved ticket needs it — not speculatively
 - Design data layers (schemas, interfaces) to be forward-compatible from the start
+- For work that is genuinely out of the current submission scope (e.g. the Phase-4 cross-proposal knowledge base / RAG, multi-tenancy), still leave a `// TODO(phase-N):` marker rather than building it ahead of an approved ticket
 
 ## Enforcement Mechanisms (Not Just Documentation)
 
@@ -304,7 +325,7 @@ CLAUDE.md is context, not a fence. Real enforcement lives in:
 | **AI sub-agent review (manual)** | AC + DoD verification with evidence, deep architecture check | Active (WORKFLOW.md protocol, optional) |
 | **Human approval** | Final merge gate | Active (Malik or Timm approves every PR) |
 
-**Phase 0 note:** Pre-commit/pre-push hooks are not yet implemented. Rely on CI pipeline and human review. Hooks will be added in Phase 1.
+**Hooks note:** Local pre-commit/pre-push hooks are still not implemented; the CI pipeline (GitHub Actions) plus human review are the enforced gates today. Adding the hooks is fair game now if a ticket calls for it.
 
 ## Go-Specific Conventions
 
@@ -341,7 +362,7 @@ If blocked, do NOT improvise. Follow this protocol:
 
 **This is a real production system, not a demo:**
 - Kaimi is production infrastructure for BlueMeta Technologies' daily BD operations
-- Hackathon (June 5, 2026) is a milestone it passes through, not the end date
+- The Google AI Agents Challenge submission (deadline **June 11, 2026**) is a milestone it passes through, not the end date
 - Do not take demo shortcuts that compromise production quality
 - Optimize for a system operated for years, not a throwaway one-off
 
@@ -353,15 +374,15 @@ If blocked, do NOT improvise. Follow this protocol:
 - Human always approves proposals before submission (never auto-submit)
 - Agents never merge their own code (Malik or Timm merges)
 - SAM.gov rate limits (1,000 req/day) — must cache aggressively
-- Forward-compatible schema design (Opportunity holds all downstream fields even in Phase 0)
+- Forward-compatible schema design (the `Opportunity` holds fields for every agent across all zones)
 
 ## Session Start Checklist
 
 At the start of every Claude Code session in this repo:
 
-- [ ] Read this CLAUDE.md
+- [ ] Read this CLAUDE.md — including the **CURRENT DIRECTIVE banner at the top** (we are completing the full product, not locked to Phase 0)
 - [ ] Skim PROJECT.md for current phase and success criteria
-- [ ] Check ARCHITECTURE.md for phase scope ("Phase 0 only" reminder)
+- [ ] Check ARCHITECTURE.md for the two-zone design and roadmap (its "Phase 0 only" scope lock is retired — the banner here wins)
 - [ ] Review CONVENTIONS.md if creating new files or packages
 - [ ] Check GitHub Issues for any active work assigned (use GitHub MCP server or `gh` CLI)
 - [ ] Check `docs/tickets/malik-tickets.md` and `docs/tickets/timm-tickets.md` for context

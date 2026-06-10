@@ -1,12 +1,18 @@
 # Architecture — Kaimi
 
-**Last updated:** 2026-06-03
+**Last updated:** 2026-06-09
 **Status:** Living
 
 > **Read this before building anything.** This document gives you the full system
-> context so your choices stay forward-compatible. **You are only building Phase 0
-> right now.** Do not build agents or infrastructure from later phases. See
-> "Scope discipline" at the bottom.
+> context so your choices stay forward-compatible.
+>
+> **⚠️ Scope update (2026-06-09): the "Phase 0 only" lock is RETIRED.** Kaimi's full
+> end-to-end pipeline is built and deployed, and we are completing the product (web +
+> desktop dashboards, Zone-2 chain polish) for the June 11, 2026 Google AI Agents
+> Challenge submission. Build across all zones and phases as approved tickets direct.
+> The phase table and "Scope discipline" section below are kept for historical context
+> and forward-compatibility guidance — **not** as a ceiling on what you may build.
+> Forward-compatible schema design and "provision lazily, design eagerly" still apply.
 
 ---
 
@@ -112,16 +118,16 @@ one per active proposal.
 Pulls live federal opportunities from SAM.gov API, filters by NAICS code against BlueMeta's capability profile, populates the `Opportunity` schema. Respects SAM.gov rate limits (1,000 req/day) through intelligent caching. Runs daily as Zone 1 batch job. No dependencies on other agents.
 
 ### Scorer Agent
-Takes opportunities from Hunter, scores bid/no-bid fit against BlueMeta's structured capability profile using Gemini 3 Pro reasoning. Produces explainable scores (not just numeric values). Writes scored opportunities to Queue. Phase 1+.
+Takes opportunities from Hunter, scores bid/no-bid fit against BlueMeta's structured capability profile using Gemini reasoning. Produces explainable scores (not just numeric values). Writes scored opportunities to Queue. **Built and running** (`internal/scorer`).
 
 ### Opportunity Queue
 Store interface (JSON-backed in Phase 0, Firestore in Phase 1+) holding scored opportunities awaiting human selection. The bridge between Zone 1 and Zone 2.
 
 ### Manager Agent
-Orchestrator that spins up per-proposal when an opportunity is selected. Coordinates Zone 2 specialist agents in sequence. Does not exist until Phase 2.
+Orchestrator that spins up per-proposal when an opportunity is selected. Coordinates Zone 2 specialist agents in sequence. **Built** (`internal/manager`).
 
 ### Outline, Technical Writer, Final Review Agents
-Zone 2 specialists for proposal generation. Phase 3+. See kaimi_timm_tickets.md for Timm's agent build assignments.
+Zone 2 specialists for proposal generation. **Built** (`internal/outline`, `internal/writer`, `internal/finalreview`). See the ticket queues for remaining polish assignments.
 
 ---
 
@@ -207,15 +213,20 @@ the Hunter.
 
 ---
 
-## Build phases (context only — build Phase 0 only)
+## Build phases (roadmap — the "Phase 0 only" lock is retired, 2026-06-09)
 
-| Phase | Scope | Do you build it now? |
-|-------|-------|----------------------|
-| **0** | Foundation + Hunter agent + Opportunity schema + queue interface | **YES — this is the current task** |
-| 1 | Scorer agent + real queue (Firestore) + daily scheduling | No |
-| 2 | Manager + Zone 2 orchestration + selection event | No |
-| 3 | Outline + Writer + Final Review + past-performance knowledge base (RAG) | No |
-| 4 | Cross-proposal memory + scale hardening + observability | No |
+| Phase | Scope | Status |
+|-------|-------|--------|
+| **0** | Foundation + Hunter agent + Opportunity schema + queue interface | ✅ Done |
+| **1** | Scorer agent + queue + daily scheduling + GCP deploy | ✅ Done (Cloud Run Job + Scheduler; Store still JSON-backed, Firestore optional later) |
+| **2** | Manager + Zone 2 orchestration + selection event | ✅ Built (`internal/manager`) |
+| **3** | Outline + Writer + Final Review + dashboards | 🔧 In flight — agents built; web + desktop dashboards in active development for the submission |
+| 4 | Past-performance knowledge base (RAG) + cross-proposal memory + scale hardening + observability | ⏳ Not yet — design eagerly, provision lazily; needs an approved ticket before build (see KAI-M8) |
+
+**For the June 11 submission, build whatever an approved ticket asks across Phases 0–3.**
+Phase 4 items (RAG knowledge base, cross-proposal memory, multi-tenancy) remain
+genuinely future work — leave a `// TODO(phase-4):` marker rather than building them
+ahead of an approved ticket.
 
 ---
 
@@ -243,18 +254,18 @@ The following are NOT supported by this architecture and would require fundament
 
 ---
 
-## Scope discipline (read this twice)
+## Scope discipline (updated 2026-06-09 — the phase lock is lifted)
 
-You are building **Phase 0 only**: project foundation, the Hunter agent, the
-`Opportunity` schema, and the queue interface. A separate build brief specifies the
-exact Phase 0 work.
+The original version of this section restricted all work to Phase 0. **That
+restriction is retired.** Hunter, Scorer, Manager, Outline, Writer, Final Review, the
+`AgentResult` contract, scheduling, and GCP deploy are all built. We are completing
+the product (dashboards + Zone-2 polish) for the June 11 submission.
 
-- **Do NOT** build the Scorer, Manager, Outline, Writer, or Final Review agents yet (Phase 1+).
-- **Do NOT** deploy databases, Agent Engine, vector search, or scheduling yet.
-- **DO** implement the `AgentResult` contract now (KAI-M1) - it's foundational and unblocks other agent work.
-- **DO** make the `Opportunity` schema and the `Store` interface forward-compatible.
-- **DO** keep the code simple, conventional, and well-commented.
+What "scope discipline" means now:
 
-When in doubt, build less. The foundation others build on matters more than
-features. If a decision seems to require knowledge of a later phase, leave a clear
-`// TODO(phase-N):` comment rather than building ahead.
+- **DO** build across all zones and phases as approved tickets direct — no more refusing work as "later-phase."
+- **DO** keep each ticket tightly scoped to its acceptance criteria. Building the full product is not license to gold-plate; build what the ticket asks, well.
+- **DO** keep the `Opportunity` schema and `Store` interface forward-compatible — they remain the highest integration risk.
+- **DO** keep code simple, conventional, and well-commented (legibility is a hard requirement).
+- **Provision lazily**: stand up a new GCP service or dependency only when an approved ticket needs it — not speculatively.
+- For genuinely future (Phase 4) work — RAG knowledge base, cross-proposal memory, multi-tenancy — leave a clear `// TODO(phase-4):` comment rather than building ahead of an approved ticket.
