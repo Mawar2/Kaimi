@@ -130,6 +130,30 @@ func (s *Service) Select(ctx context.Context, oppID string) error {
 	return nil
 }
 
+// RecordOutcome records the human's award decision for a submitted proposal:
+// "won", "lost", or "" (back to pending award). Only a submitted proposal can
+// carry an outcome; it feeds the Submitted archive's pipeline value stats.
+func (s *Service) RecordOutcome(ctx context.Context, oppID, outcome string) error {
+	switch outcome {
+	case "", "won", "lost":
+	default:
+		return fmt.Errorf("record outcome %s: invalid outcome %q", oppID, outcome)
+	}
+	opp, err := s.deps.Opportunities.Get(ctx, oppID)
+	if err != nil {
+		return fmt.Errorf("record outcome %s: %w", oppID, err)
+	}
+	if opp.ProposalStatus != StatusSubmitted {
+		return fmt.Errorf("record outcome %s: proposal is not submitted", oppID)
+	}
+	opp.AwardOutcome = outcome
+	opp.UpdatedAt = s.Now()
+	if err := s.deps.Opportunities.Save(ctx, opp); err != nil {
+		return fmt.Errorf("record outcome %s: %w", oppID, err)
+	}
+	return nil
+}
+
 // UpdateSection records a human edit to one document section. Edits are
 // only meaningful while the proposal is paused at a gate.
 func (s *Service) UpdateSection(ctx context.Context, oppID, sectionID, body string) (*document.Document, error) {

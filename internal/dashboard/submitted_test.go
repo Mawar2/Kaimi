@@ -4,6 +4,7 @@ import (
 	"context"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"testing"
 	"time"
 
@@ -11,6 +12,40 @@ import (
 	"github.com/Mawar2/Kaimi/internal/opportunity"
 	"github.com/Mawar2/Kaimi/internal/store"
 )
+
+// TestRecordOutcome covers the win/loss outcome write from the Submitted
+// archive: POST /submitted/{id}/outcome updates AwardOutcome (via the proposal
+// service), "pending" clears it, and a non-submitted opportunity is rejected.
+func TestRecordOutcome(t *testing.T) {
+	h, _, opps := newProposalHandler(t)
+	ctx := context.Background()
+	now := time.Now()
+	if err := opps.Save(ctx, &opportunity.Opportunity{
+		ID: "sub1", Title: "Submitted Proposal", Agency: "GSA",
+		Selected: true, ProposalStatus: "submitted", EstimatedValue: 2_000_000, UpdatedAt: now,
+	}); err != nil {
+		t.Fatalf("seed: %v", err)
+	}
+
+	if rr := postForm(t, h, "/submitted/sub1/outcome", url.Values{"outcome": {"won"}}); rr.Code != http.StatusSeeOther {
+		t.Fatalf("record won: status %d, want 303", rr.Code)
+	}
+	if opp, _ := opps.Get(ctx, "sub1"); opp.AwardOutcome != "won" {
+		t.Errorf("AwardOutcome = %q, want won", opp.AwardOutcome)
+	}
+	// "pending" clears the outcome back to empty.
+	postForm(t, h, "/submitted/sub1/outcome", url.Values{"outcome": {"pending"}})
+	if opp, _ := opps.Get(ctx, "sub1"); opp.AwardOutcome != "" {
+		t.Errorf("pending should clear the outcome, got %q", opp.AwardOutcome)
+	}
+	// A non-submitted opportunity cannot carry an outcome.
+	if err := opps.Save(ctx, &opportunity.Opportunity{ID: "raw1", Title: "Not Submitted", UpdatedAt: now}); err != nil {
+		t.Fatalf("seed raw: %v", err)
+	}
+	if rr := postForm(t, h, "/submitted/raw1/outcome", url.Values{"outcome": {"won"}}); rr.Code != http.StatusConflict {
+		t.Errorf("outcome on a non-submitted opp: status %d, want 409", rr.Code)
+	}
+}
 
 func seedSubmitted(t *testing.T, s store.Store, now time.Time) {
 	t.Helper()

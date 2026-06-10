@@ -37,6 +37,7 @@ type SubmittedRowVM struct {
 	SubmittedStr string // "Jan 2, 2006"
 	StatusLabel  string
 	StatusClass  string // kbadge--pending | kbadge--done | kbadge--muted
+	Outcome      string // raw award outcome: "" (pending) | won | lost
 	AwardNote    string
 	URL          string // SAM.gov solicitation link
 	Docs         []SubmittedDocVM
@@ -168,6 +169,7 @@ func (h *Handler) handleSubmitted(w http.ResponseWriter, r *http.Request) {
 			SubmittedStr: when.Format("Jan 2, 2006"),
 			StatusLabel:  label,
 			StatusClass:  class,
+			Outcome:      opp.AwardOutcome,
 			AwardNote:    note,
 			URL:          opp.URL,
 		}
@@ -200,6 +202,30 @@ func (h *Handler) handleSubmitted(w http.ResponseWriter, r *http.Request) {
 	if err := h.submittedTmpl.Execute(w, data); err != nil {
 		fmt.Printf("submitted template failed: %v\n", err)
 	}
+}
+
+// handleOutcome records a win/loss award decision from the Submitted archive's
+// per-row outcome control, then redirects back to the archive. The write goes
+// through the proposal service (the dashboard Service is read-only by design).
+func (h *Handler) handleOutcome(w http.ResponseWriter, r *http.Request) {
+	if h.proposals == nil {
+		http.Error(w, "recording outcomes is not enabled on this server", http.StatusServiceUnavailable)
+		return
+	}
+	id := r.PathValue("id")
+	if !opportunityIDPattern.MatchString(id) {
+		h.renderNotFound(w, id)
+		return
+	}
+	outcome := r.FormValue("outcome")
+	if outcome == "pending" {
+		outcome = ""
+	}
+	if err := h.proposals.RecordOutcome(r.Context(), id, outcome); err != nil {
+		http.Error(w, err.Error(), http.StatusConflict)
+		return
+	}
+	http.Redirect(w, r, "/submitted", http.StatusSeeOther)
 }
 
 // docSizeMeta renders a human document size for the reference-document chips.
@@ -285,8 +311,14 @@ const submittedContentTmpl = `{{define "content"}}
           </div>
           <div class="sd-outcome">
             <div class="sd-h">Outcome</div>
-            <div class="seg" style="margin-top:8px"><span class="kbadge {{.StatusClass}}"><span class="dot"></span>{{.StatusLabel}}</span></div>
-            <div class="sd-hint">Recording wins and losses (which updates your pipeline stats) lands in a follow-up commit.</div>
+            <div class="seg" style="margin-top:8px">
+              <form method="POST" action="/submitted/{{.ID}}/outcome">
+                <button{{if eq .Outcome ""}} class="on"{{end}} name="outcome" value="pending">Pending</button>
+                <button{{if eq .Outcome "won"}} class="on"{{end}} name="outcome" value="won">Won</button>
+                <button{{if eq .Outcome "lost"}} class="on"{{end}} name="outcome" value="lost">Not awarded</button>
+              </form>
+            </div>
+            <div class="sd-hint">Award decisions update your pipeline stats. Kaimi also watches SAM.gov for award notices.</div>
           </div>
         </div>
       </div>
