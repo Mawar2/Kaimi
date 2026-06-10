@@ -1,27 +1,71 @@
-# Kaimi - Hackathon Demo Script
-**Track 1: Build (Net-New Agents)**
+# Kaimi — Hackathon Demo Script
+**Track 2: Optimize (Existing Agents)** · Target length: **≤ 3:00**
 
 > [!TIP]
-> Keep the video under 3 minutes. Speak clearly, and emphasize how the Google ADK and Gemini are integrated to make the system fully autonomous but controllable.
+> Track 2 rewards *treating AI quality as a rigorous engineering discipline*. The through-line:
+> **"a real, deployed federal-BD agent system that we hardened into measured, production-grade
+> reliability."** Don't just show it work — show it *running on real data* and show the
+> *measurement*. Hit all four judging axes: Technical (30%), Business (30%), Innovation (20%),
+> Demo (20%).
+>
+> Before recording, replace every **[MALIK: …]** with a real artifact or number. Keep energy up;
+> the system is real, so let that confidence show.
 
-## 0:00 - 0:30 | Introduction & The Problem
-**[Visual]**: Start with a slide or screen showing the Kaimi logo / GitHub repo.
-**[Script]**: "Hi, we are building **Kaimi**, an autonomous business-development pipeline for federal government contracting. We are submitting to Track 1 of the Google AI Agents Challenge. Government contracting is incredibly lucrative but painful—companies spend thousands of hours reading dense SAM.gov solicitations just to figure out if they should bid. We built a multi-agent system using the Google Agent Development Kit (ADK) and Gemini 2.5 Pro to automate this entire pipeline."
+---
 
-## 0:30 - 1:15 | Zone 1: The Pipeline (Architecture)
-**[Visual]**: Show the `ARCHITECTURE.md` Mermaid diagram or `SystemDesign.jsx`.
-**[Script]**: "Kaimi is split into two zones. Zone 1 is our scheduled batch pipeline. Every day, the **Hunter Agent** queries the SAM.gov API, filters out irrelevant opportunities based on our actual Capability Profile (NAICS codes, set-asides). Then, the **Scorer Agent** takes over. Using Gemini 2.5 Pro, it reads the complex solicitation documents, scores the opportunity against our capabilities, and provides a 'Bid', 'No Bid', or 'Review' recommendation with explainable reasoning. Let's see it in action."
+## 0:00 – 0:25 | The problem + who we are
+**[Visual]** Kaimi wordmark, then the GitHub repo.
+**[Script]** "I'm Malik, founder of BlueMeta Technologies. We chase federal contracts — and the
+bottleneck is brutal: thousands of hours reading dense SAM.gov solicitations just to decide what
+to bid, then drafting compliant proposals. **Kaimi is the autonomous BD pipeline I built to run
+my own business**, using Google's Agent Development Kit and Gemini 2.5 Pro. For Track 2, we took
+this working system and hardened it into something production-grade and *measured*."
 
-## 1:15 - 2:00 | Live Demo
-**[Visual]**: Open the terminal. Ensure your `.env` is populated with your API keys.
-Run `go run ./cmd/pipeline --mode=live`.
-Show the JSON output of the Scorer Agent with the reasoning and score.
-**[Script]**: "Here we're running the live Kaimi pipeline. You can see it pulls real opportunities directly from SAM.gov, parses the requirements, and Gemini 2.5 Pro outputs a structured JSON assessment. Notice how the Scorer provides an explainable reason for its recommendation. All this is orchestrated cleanly using the ADK."
+## 0:25 – 1:00 | Zone 1 live — discovery & scoring
+**[Visual]** Terminal: `go run ./cmd/pipeline --mode=live`. Show real scored output.
+**[Script]** "Zone 1 is a scheduled batch pipeline — no orchestrator, state flows through a Store.
+The **Hunter** pulls live SAM.gov opportunities and filters them against BlueMeta's real
+capability profile — NAICS, set-asides — as a hard eligibility gate. The **Scorer** then uses
+Gemini 2.5 Pro to read the solicitation and return a BID / NO-BID / REVIEW call **with explainable
+reasoning**. This runs on a schedule in Cloud Run today."
+**[On-screen]** [MALIK: a real opportunity — title + the Scorer's reasoning + score.]
 
-## 2:00 - 2:30 | Phase 2 & The Future
-**[Visual]**: Go back to the Architecture diagram, pointing to Zone 2.
-**[Script]**: "Once an opportunity hits our Queue, Zone 2 takes over. A Manager agent spins up for each proposal, orchestrating a Technical Writer and an Outline agent to draft the proposal. Crucially, we use the ADK's native human-in-the-loop features to pause the Manager at a 'Human Gate'. This ensures that a human reviews all outputs before submission—because we never let AI promise the government things we can't deliver."
+## 1:00 – 1:40 | Zone 2 live — the grounded proposal + the human gate
+**[Visual]** Select an opportunity; show the Manager threading the Zone-2 agents; show the draft.
+**[Script]** "When I select an opportunity, Zone 2 spins up a **deterministic Go conductor — no LLM
+in the orchestration** — that threads it through Outline, Writer, and Final Review. The Writer
+**grounds strictly on our capability profile and the ingested solicitation documents** — it flags
+gaps instead of fabricating, because we never promise the government something we can't deliver.
+Final Review runs a compliance pass. Then it **stops at a human gate** — Kaimi never auto-submits.
+A person approves every proposal."
+**[On-screen]** [MALIK: a real drafted section + a flagged gap + the compliance result.]
 
-## 2:30 - 3:00 | Conclusion
-**[Visual]**: Show the GitHub CI/CD Actions page.
-**[Script]**: "Finally, we treat AI quality as engineering. We built an AI-powered CI/CD pipeline using Gemini 2.5 Pro that automatically reviews PRs for bugs and even auto-fixes simple issues. Kaimi isn't just a prototype; it's a production-ready system ready for the Google Cloud Marketplace. Thank you!"
+## 1:40 – 2:20 | The Track-2 differentiator — reliability is MEASURED
+**[Visual]** Terminal: run the eval harness; show the reliability report.
+**[Script]** "Here's what makes this Track 2 and not a demo: we treat reliability as an engineering
+discipline. Our **`internal/eval` harness** scores the Scorer's bid/no-bid accuracy against a
+labeled dataset, and measures the Writer's **groundedness** — what fraction of every drafted claim
+is actually supported by our source facts, flagging any fabrication. That turns 'it works' into a
+*number we can defend and regression-test*."
+**[On-screen]** [MALIK: real eval output — Scorer accuracy/precision/recall + Writer groundedness %.]
+
+## 2:20 – 2:50 | Innovation — quality enforced by the system itself
+**[Visual]** GitHub Actions: the AI Code Review + auto-fix on a PR.
+**[Script]** "And quality is enforced automatically. Every pull request is reviewed by **Gemini 2.5
+Pro in CI**, an auto-fix bot patches simple issues, and merges are gated on green checks. Combined
+with the deterministic conductor and a crash-safe, status-driven human gate, Kaimi behaves like
+infrastructure we'll operate for years — not a one-off."
+
+## 2:50 – 3:00 | Close
+**[Visual]** The dashboard showing a real opportunity moving through stages.
+**[Script]** "Kaimi is a real, deployed, *measured* BD system that a one-person shop runs every day.
+That's Track 2. Thank you."
+
+---
+
+### Pre-record checklist
+- [ ] [MALIK: `gcloud auth application-default login` + `SAM_API_KEY` set so the live runs work on camera.]
+- [ ] [MALIK: pick ONE real opportunity to follow through all the way — same one in Zone 1, Zone 2, and the dashboard.]
+- [ ] [MALIK: run the eval harness once beforehand and have the report on screen.]
+- [ ] Architecture diagram (ARCHITECTURE.md Mermaid / SystemDesign.jsx) ready as a cutaway.
+- [ ] Record at 1080p; keep total under 3:00.
