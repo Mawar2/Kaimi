@@ -35,7 +35,7 @@ serving the **old** bytes and silently mask your change). Confirm with
 | Triage | `/` | `01-opportunities.png` | ✅ 06-10 | typography only | ✅ fonts | ☐ |
 | Opportunity detail | `/opportunity/{id}` | `02-opportunity-drawer*.png` | ☐ | ☐ | ☐ | ☐ |
 | Proposals command | `/proposals` | `03-proposals-command.png` | ☐ | ☐ | ☐ | ☐ |
-| Workspace | `/workspace/{id}` | `04/06/07-workspace*.png` | ☐ | ☐ | ☐ | ☐ |
+| Workspace | `/workspace/{id}` | `04/06/07-workspace*.png` | ✅ 06-10 | surfaces → `--surface` | ✅ gate+editor | ☐ |
 | Shared chrome (header/nav/states/responsive) | all | — | partial | typography | ✅ fonts | ☐ |
 | Component pass (all states) | — | `08-design-system*.png` | ☐ | ☐ | ☐ | ☐ |
 
@@ -69,11 +69,33 @@ fallback. Variable builds chosen because the type tokens use non-standard weight
 faces). `make all`-equivalent green (module build + all package tests + `golangci-lint`
 clean on `internal/dashboard`). Typography now matches the comps.
 
+### 2026-06-10 — Workspace: route editor surfaces through `--surface` (PR pending, issue #210)
+
+**Divergence.** `/workspace/{id}` re-hardcoded `background: #fff` on `.edsec textarea`,
+`.draft-body`, and the ready-card gradient (`#fff 60%`) — a hardcode **and** a dark-theme bug
+(white surfaces ignore the Focus theme's `--surface`). **Fix:** all three → `var(--surface)`
+(theme-aware). Verified at the gate + done states in a real browser; no light-mode regression.
+
+**Tried and reverted (logged for a proper follow-up).** Also tried deduping the gate handoff
+avatar (`:226`) through the `agents` map via `{{.Agent.HueBG}}`. This **broke** the avatar:
+`html/template`'s style-attribute CSS sanitizer rejects a dynamic `linear-gradient(...)` value
+and emits `ZgotmplZ` (the static literal was fine precisely because it isn't interpolated). The
+**same latent bug already exists** at the progress-state avatar (`:290`, `style="background:
+{{.Agent.HueBG}}"`). Proper fix = type `agentIdentity.HueBG/HueFG` as `template.CSS` (safe — the
+values are static map constants, not user input); that fixes `:290` too. Reverted `:226` to the
+working literal for this PR; filed as backlog below.
+
+TDD `TestWorkspaceSurfacesUseDesignTokens`; `make all`-green; `golangci-lint` clean.
+
 ## Audit backlog (found while auditing; not yet ticketed/fixed)
 
-- **Proposals/Workspace** re-hardcode agent-identity gradients and `#fff` surfaces
-  (`proposals.go:30-32`, `proposals_templates.go:226,299-300,314,348,356`). Route agent
-  avatar colors through tokens/`components.go` in the Proposals/Workspace iteration.
+- **Agent gradient ZgotmplZ:** the progress-state avatar (`proposals_templates.go:290`) renders
+  a dynamic `{{.Agent.HueBG}}` gradient in a `style` attr → `html/template` sanitizes it to
+  `ZgotmplZ` (broken background). Fix by typing `agentIdentity.HueBG/HueFG` as `template.CSS`;
+  this also lets the gate avatar (`:226`) dedup through the `agents` map. Security note: the
+  values are static constants from the map, so `template.CSS` is safe here.
+- **Workspace success gradient** (`:300,314`, `#2BD49A,#15A06B`) mixes the light + Focus
+  `--st-done` greens — no single token; mirrors the handoff. Left as-is.
 - **Shared chrome:** `sidebarMarkSVG` (inline brand SVG in `handler.go:100`) duplicates the
   brand mark; consider sourcing it from `brand.go` (`HeaderLockup`) in the shared-chrome pass.
 - **Component coverage:** the cached seed only spans BID rows; hand-add opportunity JSONs

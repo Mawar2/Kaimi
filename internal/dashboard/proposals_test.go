@@ -180,6 +180,38 @@ func TestRequestChangesOverHTTP(t *testing.T) {
 	}
 }
 
+// TestWorkspaceSurfacesUseDesignTokens proves the workspace editor surfaces
+// consume the --surface token instead of hardcoded #fff (issue #210). #fff
+// bypasses the token system and stays white in the dark Focus theme; the
+// section textarea and the read-only draft body must follow --surface so the
+// workspace is theme-correct and on one vocabulary.
+func TestWorkspaceSurfacesUseDesignTokens(t *testing.T) {
+	h, svc, _ := newProposalHandler(t)
+	if rr := postForm(t, h, "/opportunity/zta-1/select", url.Values{}); rr.Code != http.StatusSeeOther {
+		t.Fatalf("select: status %d, want 303", rr.Code)
+	}
+	svc.Wait()
+
+	body := get(t, h, "/workspace/zta-1")
+	if !contains(body, "<textarea") {
+		t.Fatalf("workspace gate must render the section editor")
+	}
+	// The two workspace-specific editor surfaces must route through --surface
+	// (theme-aware), not a hardcoded #fff. Assert the exact rule fragments so
+	// the check targets the workspace template, not the design-system tokens in
+	// StyleTag (which legitimately define #fff token values).
+	for _, want := range []string{
+		// .edsec textarea rule (resize:vertical is unique to it)
+		"background: var(--surface); border: 1px solid var(--border); border-radius: var(--r-md); padding: 12px 14px; resize: vertical",
+		// .draft-body rule (white-space:pre-wrap is unique to it)
+		"white-space: pre-wrap; background: var(--surface)",
+	} {
+		if !contains(body, want) {
+			t.Errorf("workspace editor surface must use var(--surface); missing rule %q", want)
+		}
+	}
+}
+
 // TestProposalGuards covers method/id/state validation.
 func TestProposalGuards(t *testing.T) {
 	h, svc, _ := newProposalHandler(t)
