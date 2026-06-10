@@ -1,0 +1,19 @@
+{
+  "id": "eval-opp-cloud-migration",
+  "title": "Cloud Infrastructure Modernization Services",
+  "solicitation_num": "GS00Q26NSD0001",
+  "agency": "General Services Administration",
+  "office": "GSA/FAS/AAS - ASSISTED ACQUISITION SERVICES",
+  "posted_date": "2026-05-15T00:00:00Z",
+  "response_deadline": "2026-07-15T21:00:00Z",
+  "naics_code": "541512",
+  "naics_description": "Computer Systems Design Services",
+  "set_aside_code": "SBA",
+  "place_of_performance": "Washington, DC",
+  "description": "The General Services Administration requires cloud migration services to move legacy systems to a modern cloud architecture. Work includes infrastructure assessment, DevSecOps automation, containerization, microservices architecture, and FedRAMP-aligned security implementation.",
+  "type": "Solicitation",
+  "contract_type": "Firm Fixed Price",
+  "url": "https://sam.gov/opp/eval-cloud-migration",
+  "created_at": "2026-05-15T00:00:00Z",
+  "updated_at": "2026-05-15T00:00:00Z"
+}

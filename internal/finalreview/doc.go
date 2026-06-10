@@ -18,6 +18,16 @@
 // When the Input.Outline field is nil, only the deadline and must_have checks
 // run — existing callers without an Outline are not broken.
 //
+// With a ComplianceChecker configured (NewWithComplianceChecker), the agent adds
+// an LLM compliance pass after the deterministic checks: it vets the draft
+// against the full solicitation document set (Input.Documents — Section L/M and
+// SOW deliverables) and reports any mandatory requirement the draft fails to
+// address. The deterministic checks remain a cheap pre-filter that always runs
+// first; the LLM pass runs only when documents are present. Both unmet
+// requirements and a failure to run the check route the proposal to
+// StatusNeedsHuman. The pass is grounded strictly in the provided documents — it
+// never invents requirements (see compliance.go).
+//
 // IMPORTANT: This agent NEVER submits anything. StatusReadyToSubmit in the
 // returned AgentResult is a signal for a human to act on. No submission API
 // is called by this agent.

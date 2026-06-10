@@ -1,0 +1,19 @@
+{
+  "id": "eval-opp-zero-trust",
+  "title": "Zero Trust Architecture Implementation",
+  "solicitation_num": "DHS26ZT0042",
+  "agency": "Department of Homeland Security",
+  "office": "DHS CISA",
+  "posted_date": "2026-05-20T00:00:00Z",
+  "response_deadline": "2026-07-20T21:00:00Z",
+  "naics_code": "541519",
+  "naics_description": "Other Computer Related Services",
+  "set_aside_code": "SDB",
+  "place_of_performance": "Arlington, VA",
+  "description": "The Department of Homeland Security seeks a contractor to implement a Zero Trust architecture across enterprise systems, including identity management, microsegmentation, continuous monitoring, and FISMA compliance. Strong cybersecurity and federal IT past performance required.",
+  "type": "Solicitation",
+  "contract_type": "Time and Materials",
+  "url": "https://sam.gov/opp/eval-zero-trust",
+  "created_at": "2026-05-20T00:00:00Z",
+  "updated_at": "2026-05-20T00:00:00Z"
+}

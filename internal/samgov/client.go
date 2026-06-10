@@ -11,9 +11,11 @@ package samgov
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
+	"net/url"
 	"os"
 	"strings"
 	"time"
@@ -188,6 +190,66 @@ func newLiveClient(config Config) (*liveClient, error) {
 	}, nil
 }
 
+// redactURLSecrets returns a copy of rawURL with the SAM.gov api_key query
+// parameter and any userinfo credentials replaced by the literal "REDACTED".
+//
+// SAM.gov requires the api_key to be passed as a query parameter, so the
+// request URL carries a live secret. net/http embeds the full request URL in
+// the *url.Error it returns on transport failures; wrapping that error verbatim
+// would leak the key into error strings and logs (issue #129). All error paths
+// that reference the request URL must route it through this helper first.
+//
+// If rawURL cannot be parsed, the original string is NOT returned (it may still
+// contain the key); instead a fixed placeholder is returned so nothing leaks.
+func redactURLSecrets(rawURL string) string {
+	const redacted = "REDACTED"
+
+	u, err := url.Parse(rawURL)
+	if err != nil {
+		// Parsing failed, so we cannot safely locate the secret. Never echo the
+		// raw URL back — return a placeholder rather than risk leaking the key.
+		return "[unparseable URL: " + redacted + "]"
+	}
+
+	// Redact userinfo (e.g. user:password@host) if present.
+	if u.User != nil {
+		u.User = url.User(redacted)
+	}
+
+	// Redact the api_key query parameter while preserving the other params,
+	// which are useful, non-secret context (naics, offset, etc.).
+	if query := u.Query(); query.Has("api_key") {
+		query.Set("api_key", redacted)
+		u.RawQuery = query.Encode()
+	}
+
+	return u.String()
+}
+
+// redactedRequestError wraps an error that may reference a secret-bearing
+// request URL, ensuring the api_key never reaches a log or caller. The msg
+// argument describes the failing step (e.g. "failed to execute request").
+//
+// net/http returns a *url.Error from both NewRequestWithContext (on URL parse
+// failure) and Client.Do (on transport failure); its Error() string embeds the
+// full request URL, which for SAM.gov carries the api_key. We rebuild the
+// message from the redacted URL plus the underlying cause so operators still
+// get actionable detail (timeout, DNS failure, etc.) without the secret.
+func redactedRequestError(msg, rawURL string, err error) error {
+	safeURL := redactURLSecrets(rawURL)
+
+	var urlErr *url.Error
+	if errors.As(err, &urlErr) {
+		// Wrap urlErr.Err (the root cause) rather than urlErr itself, because
+		// urlErr.Error() would render the secret-bearing URL verbatim.
+		return fmt.Errorf("%s %s: %w", msg, safeURL, urlErr.Err)
+	}
+
+	// Defensive fallback: not a *url.Error, but the message could still reference
+	// the URL. Include only the redacted URL alongside the error.
+	return fmt.Errorf("%s %s: %w", msg, safeURL, err)
+}
+
 // FetchByNAICS retrieves opportunities from SAM.gov API filtered by NAICS codes.
 //
 // The SAM.gov Opportunities API supports pagination and filtering. This implementation
@@ -226,18 +288,21 @@ func (l *liveClient) fetchByNAICSCode(ctx context.Context, naicsCode string) ([]
 		postedFrom := now.AddDate(0, 0, -30).Format("01/02/2006")
 
 		// Build query URL
-		url := fmt.Sprintf("%s/search?naics=%s&limit=%d&offset=%d&postedFrom=%s&postedTo=%s&api_key=%s",
+		reqURL := fmt.Sprintf("%s/search?naics=%s&limit=%d&offset=%d&postedFrom=%s&postedTo=%s&api_key=%s",
 			l.baseURL, naicsCode, limit, offset, postedFrom, postedTo, l.apiKey)
 
 		// Make HTTP request
-		req, err := http.NewRequestWithContext(ctx, "GET", url, http.NoBody)
+		req, err := http.NewRequestWithContext(ctx, "GET", reqURL, http.NoBody)
 		if err != nil {
-			return nil, fmt.Errorf("failed to create request: %w", err)
+			// NewRequestWithContext can return a *url.Error embedding the full URL
+			// (and thus the api_key) on a parse failure — redact before wrapping.
+			return nil, redactedRequestError("failed to create request for", reqURL, err)
 		}
 
 		resp, err := l.client.Do(req)
 		if err != nil {
-			return nil, fmt.Errorf("failed to execute request: %w", err)
+			// Redact the api_key embedded in the URL before it reaches logs/callers.
+			return nil, redactedRequestError("failed to execute request", reqURL, err)
 		}
 
 		// Check response status
@@ -291,17 +356,20 @@ func (l *liveClient) FetchByID(ctx context.Context, noticeID string) (*opportuni
 	}
 
 	// Build query URL
-	url := fmt.Sprintf("%s/search?noticeid=%s&api_key=%s", l.baseURL, noticeID, l.apiKey)
+	reqURL := fmt.Sprintf("%s/search?noticeid=%s&api_key=%s", l.baseURL, noticeID, l.apiKey)
 
 	// Make HTTP request
-	req, err := http.NewRequestWithContext(ctx, "GET", url, http.NoBody)
+	req, err := http.NewRequestWithContext(ctx, "GET", reqURL, http.NoBody)
 	if err != nil {
-		return nil, fmt.Errorf("failed to create request: %w", err)
+		// NewRequestWithContext can return a *url.Error embedding the full URL
+		// (and thus the api_key) on a parse failure — redact before wrapping.
+		return nil, redactedRequestError("failed to create request for", reqURL, err)
 	}
 
 	resp, err := l.client.Do(req)
 	if err != nil {
-		return nil, fmt.Errorf("failed to execute request: %w", err)
+		// Redact the api_key embedded in the URL before it reaches logs/callers.
+		return nil, redactedRequestError("failed to execute request", reqURL, err)
 	}
 	defer func() {
 		if closeErr := resp.Body.Close(); closeErr != nil {

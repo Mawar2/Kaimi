@@ -2,11 +2,64 @@ package samgov
 
 import (
 	"context"
+	"fmt"
+	"net/http"
+	"strings"
 	"testing"
 	"time"
 
 	"github.com/Mawar2/Kaimi/internal/opportunity"
 )
+
+// failingRoundTripper is a test http.RoundTripper that always fails the request.
+// It lets us force the l.client.Do(req) error path deterministically (no network),
+// so we can assert that the api_key in the request URL never leaks into the error.
+type failingRoundTripper struct{}
+
+// RoundTrip always returns an error, mirroring how net/http wraps transport
+// failures in a *url.Error whose Error() string embeds the full request URL.
+func (failingRoundTripper) RoundTrip(req *http.Request) (*http.Response, error) {
+	return nil, fmt.Errorf("simulated transport failure")
+}
+
+// TestLiveClient_FetchErrorRedactsAPIKey verifies that when an HTTP fetch fails,
+// the api_key embedded in the request URL is never exposed in the returned error.
+// This is the regression test for issue #129 (api_key leaking into error messages/logs).
+func TestLiveClient_FetchErrorRedactsAPIKey(t *testing.T) {
+	const fakeKey = "SECRET_TEST_KEY_123"
+
+	newLeakyClient := func() *liveClient {
+		return &liveClient{
+			apiKey:  fakeKey,
+			baseURL: "https://api.sam.gov/opportunities/v2",
+			client:  &http.Client{Transport: failingRoundTripper{}},
+		}
+	}
+
+	assertRedacted := func(t *testing.T, err error) {
+		t.Helper()
+		if err == nil {
+			t.Fatal("expected an error from the forced fetch failure, got nil")
+		}
+		msg := err.Error()
+		if strings.Contains(msg, fakeKey) {
+			t.Errorf("error message leaked api_key %q: %s", fakeKey, msg)
+		}
+		if !strings.Contains(msg, "REDACTED") {
+			t.Errorf("expected error to contain a redaction marker %q, got: %s", "REDACTED", msg)
+		}
+	}
+
+	t.Run("FetchByNAICS", func(t *testing.T) {
+		_, err := newLeakyClient().FetchByNAICS(context.Background(), []string{"541512"})
+		assertRedacted(t, err)
+	})
+
+	t.Run("FetchByID", func(t *testing.T) {
+		_, err := newLeakyClient().FetchByID(context.Background(), "abc123")
+		assertRedacted(t, err)
+	})
+}
 
 // TestConfig_Defaults verifies that Config has sensible zero values.
 func TestConfig_Defaults(t *testing.T) {
