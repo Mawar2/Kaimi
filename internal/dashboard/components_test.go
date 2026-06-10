@@ -136,6 +136,14 @@ func TestDeadlinePill(t *testing.T) {
 	if !strings.Contains(crit, "<svg") {
 		t.Errorf("deadline pill should carry the clock icon, got:\n%s", crit)
 	}
+	// The intermediate escalation bands must also map to their modifier class
+	// (browser-verified: near → amber #E8870E, soon → blue #2563EB).
+	if near := string(DeadlinePill("10 days", 10)); !strings.Contains(near, "kdead--near") {
+		t.Errorf("near deadline (7-14d) should carry kdead--near, got:\n%s", near)
+	}
+	if soon := string(DeadlinePill("20 days", 20)); !strings.Contains(soon, "kdead--soon") {
+		t.Errorf("soon deadline (15-30d) should carry kdead--soon, got:\n%s", soon)
+	}
 	escaped := string(DeadlinePill("a<b & c", 2))
 	assertWellFormedXML(t, escaped)
 	if !strings.Contains(escaped, "a&lt;b &amp; c") {
@@ -176,6 +184,27 @@ func TestFitRingGeometryMatchesDesignSpecimen(t *testing.T) {
 		if !strings.Contains(got, want) {
 			t.Errorf("FitRing(82, 44) missing %q in:\n%s", want, got)
 		}
+	}
+}
+
+// TestFitRingBandPerScore asserts FitRing tags each score with the right band
+// (the geometry test above already covers `strong`). Browser-verified that each
+// band paints its token: strong #15A06B, good #0EA5C4, fair #E8870E, weak #C2354A.
+func TestFitRingBandPerScore(t *testing.T) {
+	tests := []struct {
+		score int
+		band  string
+	}{
+		{70, "good"}, {50, "fair"}, {30, "weak"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.band, func(t *testing.T) {
+			got := string(FitRing(tt.score, 52))
+			assertWellFormedXML(t, got)
+			if !strings.Contains(got, fmt.Sprintf("data-band=%q", tt.band)) {
+				t.Errorf("FitRing(%d) should be band %q, got:\n%s", tt.score, tt.band, got)
+			}
+		})
 	}
 }
 

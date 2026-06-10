@@ -37,7 +37,7 @@ bin\dashboard.exe --store=.\design-store --port=8901             # NB: kill stal
 | Proposals command | `/proposals` | `03-proposals-command.png` | ✅ 06-10 | card link reset | ✅ navy/no-underline | ☐ |
 | Workspace | `/workspace/{id}` | `04/06/07-workspace*.png` | ✅ 06-10 | surfaces → `--surface` | ✅ gate+editor | ☐ |
 | Shared chrome (header/nav/states/responsive) | all | — | partial | typography | ✅ fonts | ☐ |
-| Component pass (all states) | — | `08-design-system*.png` | ☐ | ☐ | ☐ | ☐ |
+| Component pass (all states) | — | `08-design-system*.png` | ✅ 06-10 | tests only (code OK) | ✅ all bands | ☐ |
 
 ## Iteration log
 
@@ -88,6 +88,20 @@ TDD `TestProposalCardsResetLinkStyling`; `make all`-green; `golangci-lint` clean
 (white surfaces ignore the Focus theme's `--surface`). **Fix:** all three → `var(--surface)`
 (theme-aware). Verified at the gate + done states in a real browser; no light-mode regression.
 TDD `TestWorkspaceSurfacesUseDesignTokens`; `make all`-green; `golangci-lint` clean.
+
+### 2026-06-10 — Component pass: verify all states + close test gaps (PR pending, issue #214)
+
+Seeded a full **rec × urgency × fit** matrix and verified every shared component renders the
+correct design-system color in a real browser: RecommendationPill (BID green / NO_BID `#C2354A`
+on `#FBE9EC` / REVIEW amber); DeadlinePill (crit white-on-solid-red / near `#E8870E` / soon
+`#2563EB` / calm base); FitRing (strong `#15A06B` / good `#0EA5C4` / fair `#E8870E` / weak
+`#C2354A`); StatusBadge (all 5 kinds), MetaTag, HeaderLockup, FaviconLink. **Components are
+correct — no production change.** Note: Triage uses the compact `.rec-min` variant; the full
+`.krec` pill renders on detail/proposals/workspace.
+
+Closed the two explicit test-coverage gaps the brief calls for: `TestDeadlinePill` now asserts
+`kdead--near` (10d) + `kdead--soon` (20d); new `TestFitRingBandPerScore` asserts `data-band`
+good/fair/weak (the geometry test already covered `strong`). `make all`-green; lint clean.
 
 ## Audit backlog (found while auditing; not yet ticketed/fixed)
 
