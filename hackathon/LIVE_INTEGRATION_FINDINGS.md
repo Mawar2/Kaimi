@@ -79,16 +79,22 @@ they'd point at a different (possibly nonexistent) model. Needs a decision on th
 then a one-line script fix. Tracking here; will fix on a follow-up `integration/*` branch once the id
 is confirmed.
 
-### F4 — No runtime entrypoint drives the full Zone-2 chain (Manager → Outline → Writer → Final Review)
-**OWNER: build-loop** (needs a `cmd/` driver or documented invocation)
-`cmd/` has: dashboard, eval, hunter, outline-probe, pipeline, scorer, spike. None of them run the
-`internal/manager` conductor over a selected opportunity. `cmd/eval` only scores/drafts in isolation
-(reliability harness), it does not thread an opportunity through the Manager. There is therefore no
-way to execute "human selects → Manager → Outline → Writer → Final Review" live from the CLI.
-**Blocks** the brief's Task 5 (prove the full proposal flow end to end) independent of the SAM quota.
-**Suggested:** add a small `cmd/manager` (or `cmd/propose`) that loads an opportunity from the Store
-and runs the Manager chain, persisting `ProposalStatus`. (Calling the in-flight packages is fine; the
-driver itself is runtime wiring.)
+### F4 — Zone-2 chain runs via the dashboard, not a headless CLI (CORRECTED — not a blocker)
+**OWNER: shared / informational** (originally filed as "no driver"; corrected after reading `cmd/dashboard`)
+Correction: the full Zone-2 chain **does** have a runtime driver — it's the **dashboard**, not a CLI.
+`cmd/dashboard/main.go:48-121` (`newProposalService`) wires Outline + Writer + Final Review through
+`internal/proposal.Service` behind the gated lifecycle, with flags:
+- `-live-writer` → real Gemini drafting over Vertex ADC (needs `GCP_PROJECT_ID`)
+- `-live-review` → Gemini compliance pass in Final Review
+The chain is driven by in-UI gate actions on an opportunity, persisting `ProposalStatus`. `cmd/eval`
+is a *separate* reliability harness (scores/drafts in isolation) — not the driver.
+
+Remaining real gap: there is **no headless/CLI driver** for the chain, so a fully-scripted live
+end-to-end run (no browser) isn't possible today — the proposal must be advanced through the dashboard
+UI. A small `cmd/propose` that loads an opportunity and runs `proposal.Service` to completion would
+make Task 5 fully scriptable and CI-demonstrable. Nice-to-have, **OWNER: build-loop** — not blocking,
+since the dashboard path works.
+Caveat: `-live-writer`/`-live-review` will hit **F2** (thinking-token truncation) until F2 is fixed.
 
 ### F5 — `GCS_SOLICITATIONS_BUCKET` is referenced in a comment but never read from config
 **OWNER: build-loop** (app wiring, ingest/manager path)
@@ -123,6 +129,15 @@ re-seeded after the SAM quota resets (F1).
   written to `.env.gcp` and recorded in `.env.example`.
 - PR: **https://github.com/Mawar2/Kaimi/pull/185** (base `main`, left for human merge).
 
+### Dashboard renders the live store (deterministic mode) — verified
+**OWNER: live-agent — DONE (data is synthetic until F1 clears)**
+- `cmd/dashboard --store=./live-store/queue` (synced from `gs://kaimi-seeker-queue`) serves
+  `http://127.0.0.1:8900/` → **HTTP 200**, both opportunities render (titles + agencies), Zone-2
+  proposal/outline/gate surfaces present.
+- Confirms the dashboard + `internal/proposal` wiring work end-to-end against the JSON store. Once
+  real opportunities are seeded (post-F1), the same command shows them; add `-live-writer
+  -live-review` for the live LLM path **after F2 is fixed**.
+
 ---
 
 ## Definition-of-done tracker (brief)
@@ -130,8 +145,8 @@ re-seeded after the SAM quota resets (F1).
 - [x] GCP runtime verified: ADC auth, SAM key present (Secret Manager), Vertex/Gemini reachable.
 - [x] GCS bucket + IAM for solicitation documents (#162) — provisioned, verified, PR #185.
 - [ ] Zone-1 live against real SAM.gov — **blocked by F1** (quota; retry after 2026-06-11 00:00 UTC).
-- [ ] Real opportunity through the full Zone-2 chain — **blocked by F1 + F4** (no Manager driver) **+ F2** (live LLM truncation).
-- [ ] Dashboard renders live data — pending (queue currently holds synthetic data, F6).
+- [ ] Real opportunity through the full Zone-2 chain — **blocked by F1** (no real data) **+ F2** (live LLM truncation). Driver exists (dashboard, F4).
+- [x] Dashboard renders store data (HTTP 200, both opps) — verified; will show *real* data once F1 clears (currently synthetic, F6).
 - [ ] A small set of REAL opportunities seeded — **blocked by F1**.
 - [x] This findings file exists and is current.
 - [x] Infra/config changes committed on `integration/*` with PR opened (#185).
