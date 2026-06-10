@@ -85,7 +85,10 @@ minimum:
 - Acceptance criteria are actually met (not just claimed).
 - Test coverage is real (TDD followed; tests would fail if the code broke).
 - Code matches `ARCHITECTURE.md` — correct zone, conforms to the interface contract,
-  forward-compatible schema, no building ahead of the current phase.
+  forward-compatible schema, and stays scoped to the ticket's acceptance criteria.
+  (Note: the old "no building ahead of the current phase" rule is retired as of
+  2026-06-09 — we are completing the full product; see the directive banner in
+  CLAUDE.md. Tight per-ticket scope still applies; gold-plating does not.)
 - Code is clear, conventional, well-commented Go (legibility is a hard requirement).
 - No secrets in code; security-sensitive changes are flagged explicitly.
 
