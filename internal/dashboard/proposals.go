@@ -1,0 +1,425 @@
+package dashboard
+
+import (
+	"fmt"
+	"net/http"
+	"strings"
+
+	"github.com/Mawar2/Kaimi/internal/document"
+	"github.com/Mawar2/Kaimi/internal/opportunity"
+	"github.com/Mawar2/Kaimi/internal/proposal"
+)
+
+// This file implements the Zone 2 web surfaces (GitHub issue #156, epic
+// #153): the Proposals command view, the Workspace with the human review
+// gate and section editor, and the human-action endpoints. All lifecycle
+// behavior lives in internal/proposal; these handlers translate HTTP to
+// service calls and render the designed markup (app-proposals.jsx /
+// app-workspace.jsx from the design handoff).
+
+// Stage names of the five-node proposal pipeline, per the design handoff.
+var stageNames = [5]string{"Outline", "Technical Writer", "Human Review", "Final Review", "Submit"}
+
+// agentIdentity is the named-teammate vocabulary from the design handoff.
+// Status copy uses their names — the gate is a warm handoff, not an alarm.
+type agentIdentity struct {
+	Name, Role, Initial, HueBG, HueFG string
+}
+
+var agents = map[string]agentIdentity{
+	"outline": {"Noa", "Outline", "N", "linear-gradient(155deg,#5B9BFF,#2563EB)", "#fff"},
+	"writer":  {"Tomás", "Technical Writer", "T", "linear-gradient(155deg,#67E0F4,#0EA5C4)", "#062a33"},
+	"review":  {"Vera", "Final Review", "V", "linear-gradient(155deg,#A99BFF,#7C6BF5)", "#fff"},
+}
+
+// proposalView derives the pipeline position and display state from the
+// persisted ProposalStatus vocabulary.
+func proposalView(status string) (stageIndex int, state string) {
+	switch status {
+	case proposal.StatusOutlineRunning:
+		return 0, "progress"
+	case proposal.StatusWriterRunning:
+		return 1, "progress"
+	case proposal.StatusGate, proposal.StatusReviewNeedsHuman:
+		return 2, "human"
+	case proposal.StatusReviewRunning:
+		return 3, "progress"
+	case proposal.StatusReadyToSubmit:
+		return 4, "done"
+	case proposal.StatusSubmitted:
+		return 4, "submitted"
+	case "outline:failed":
+		return 0, "failed"
+	case "writer:failed":
+		return 1, "failed"
+	case "final-review:failed":
+		return 3, "failed"
+	default:
+		// Selected but no pipeline state yet (or a legacy status).
+		return 0, "progress"
+	}
+}
+
+// statusPhrase is the named-teammate present-tense line for a proposal.
+func statusPhrase(stageIndex int, state string) string {
+	switch state {
+	case "human":
+		return "Paused for your review"
+	case "done":
+		return "Ready to submit"
+	case "submitted":
+		return "Submitted"
+	case "failed":
+		return stageNames[stageIndex] + " hit a problem"
+	}
+	switch stageIndex {
+	case 0:
+		return "Noa outlining now"
+	case 1:
+		return "Tomás drafting now"
+	case 3:
+		return "Vera finalizing"
+	}
+	return stageNames[stageIndex] + " in progress"
+}
+
+// workingAgent maps a pipeline stage to the teammate working it.
+func workingAgent(stageIndex int) agentIdentity {
+	switch stageIndex {
+	case 0:
+		return agents["outline"]
+	case 3:
+		return agents["review"]
+	default:
+		return agents["writer"]
+	}
+}
+
+// PropCard is the view-model for one proposal card on the command view.
+type PropCard struct {
+	ID            string
+	Title         string
+	Agency        string
+	When          string
+	StageIndex    int
+	State         string // human | progress | done | submitted | failed
+	StageLabel    string
+	DeadlineLabel string
+	DeadlineDays  int
+	CalmDeadline  bool // submitted cards show a calm pill regardless of level
+}
+
+// PropGroup is one section of the command view, in fixed display order.
+type PropGroup struct {
+	Label string
+	Amber bool
+	Cards []PropCard
+}
+
+// ProposalsData is the view-model for the Proposals command view.
+type ProposalsData struct {
+	shellData
+	InFlight   int
+	AgentCount int
+	Groups     []PropGroup
+	Empty      bool
+}
+
+// WorkspaceData is the view-model for the single-proposal Workspace.
+type WorkspaceData struct {
+	shellData
+	Opp           *opportunity.Opportunity
+	Doc           *document.Document
+	ScorePct      int
+	StageIndex    int
+	State         string
+	Phrase        string
+	DeadlineLabel string
+	DeadlineDays  int
+	Agent         agentIdentity
+	AgentLine     string
+	Criteria      []CritItem
+	OpenFlags     []document.Flag
+	VersionLabel  string
+	AtGate        bool
+}
+
+// CritItem is one check on the gate's criteria grid, derived from the
+// opportunity's must-have requirements against the current draft.
+type CritItem struct {
+	Label string
+	Note  string
+	OK    bool
+}
+
+// agentLines are the working-state description sentences from the handoff.
+var agentLines = map[string]string{
+	"outline": "Mapping the solicitation into a section plan and matching each requirement to an evaluation factor.",
+	"writer":  "Drafting the technical volume from the outline — section by section, grounded only in the facts on file.",
+	"review":  "Running the final compliance and consistency pass. Validating every requirement and cross-reference.",
+}
+
+func (h *Handler) handleSelect(w http.ResponseWriter, r *http.Request) {
+	if h.proposals == nil {
+		http.Error(w, "proposal actions are not enabled on this server", http.StatusServiceUnavailable)
+		return
+	}
+	id := r.PathValue("id")
+	if !opportunityIDPattern.MatchString(id) {
+		h.renderNotFound(w, id)
+		return
+	}
+	if _, err := h.svc.Get(r.Context(), id); err != nil {
+		h.renderNotFound(w, id)
+		return
+	}
+	if err := h.proposals.Select(r.Context(), id); err != nil {
+		http.Error(w, err.Error(), http.StatusConflict)
+		return
+	}
+	http.Redirect(w, r, "/workspace/"+id, http.StatusSeeOther)
+}
+
+func (h *Handler) handleProposals(w http.ResponseWriter, r *http.Request) {
+	rows, err := h.svc.List(r.Context(), ListOptions{Now: h.Now()})
+	if err != nil {
+		fmt.Printf("proposals list failed: %v\n", err)
+		http.Error(w, "failed to load proposals", http.StatusInternalServerError)
+		return
+	}
+
+	data := ProposalsData{shellData: shellData{PageTitle: "Active proposals", ActiveNav: "proposals"}}
+	data.QueueCount = len(rows)
+	groups := map[string]*PropGroup{
+		"human":     {Label: "Waiting on you", Amber: true},
+		"progress":  {Label: "Agents working"},
+		"done":      {Label: "Ready to submit"},
+		"submitted": {Label: "Submitted"},
+		"failed":    {Label: "Needs attention"},
+	}
+	now := h.Now()
+	for i := range rows {
+		row := &rows[i]
+		if row.Stage == StageHunted || row.Stage == StageScored {
+			continue
+		}
+		stageIndex, state := proposalView(rowStatus(row))
+		card := PropCard{
+			ID:         row.ID,
+			Title:      row.Title,
+			Agency:     row.Agency,
+			When:       statusPhrase(stageIndex, state),
+			StageIndex: stageIndex,
+			State:      state,
+			StageLabel: stageLabelFor(stageIndex, state),
+		}
+		if !row.ResponseDeadline.IsZero() {
+			card.DeadlineLabel, card.DeadlineDays = deadlineDisplay(row.ResponseDeadline, now)
+			card.CalmDeadline = state == "submitted"
+		}
+		g := groups[state]
+		if g == nil {
+			g = groups["progress"]
+		}
+		g.Cards = append(g.Cards, card)
+		switch state {
+		case "human":
+			data.NeedsCount++
+			data.InFlight++
+			data.AgentCount++ // the gate holds one handoff
+		case "submitted":
+		default:
+			data.InFlight++
+			data.AgentCount++
+		}
+		data.ActiveCount++
+	}
+	for _, key := range []string{"human", "progress", "done", "submitted", "failed"} {
+		if len(groups[key].Cards) > 0 {
+			data.Groups = append(data.Groups, *groups[key])
+		}
+	}
+	data.Empty = len(data.Groups) == 0
+
+	w.Header().Set("Content-Type", "text/html; charset=utf-8")
+	if err := h.proposalsTmpl.Execute(w, data); err != nil {
+		fmt.Printf("proposals template execution failed: %v\n", err)
+	}
+}
+
+// rowStatus recovers the raw ProposalStatus for a list row via its stage:
+// the list view-model doesn't carry the raw status, so re-read it.
+func rowStatus(row *OpportunityRow) string {
+	switch row.Stage {
+	case StageSubmitted:
+		return proposal.StatusSubmitted
+	case StageFinalized:
+		return proposal.StatusReadyToSubmit
+	case StageAwaitingHumanReview:
+		return proposal.StatusGate
+	case StageSelected:
+		return proposal.StatusOutlineRunning
+	default:
+		return proposal.StatusWriterRunning
+	}
+}
+
+// stageLabelFor renders the mini-pipeline caption.
+func stageLabelFor(stageIndex int, state string) string {
+	switch state {
+	case "human":
+		return "Human Review"
+	case "submitted":
+		return "Submitted to SAM.gov"
+	case "done":
+		return "Ready to submit"
+	case "failed":
+		return stageNames[stageIndex] + " failed"
+	default:
+		return stageNames[stageIndex]
+	}
+}
+
+func (h *Handler) handleWorkspace(w http.ResponseWriter, r *http.Request) {
+	id := r.PathValue("id")
+	if !opportunityIDPattern.MatchString(id) {
+		h.renderNotFound(w, id)
+		return
+	}
+	opp, err := h.svc.Get(r.Context(), id)
+	if err != nil || !opp.Selected {
+		h.renderNotFound(w, id)
+		return
+	}
+
+	now := h.Now()
+	stageIndex, state := proposalView(opp.ProposalStatus)
+	data := WorkspaceData{
+		shellData:  shellData{PageTitle: opp.Title, ActiveNav: "proposals"},
+		Opp:        opp,
+		StageIndex: stageIndex,
+		State:      state,
+		Phrase:     statusPhrase(stageIndex, state),
+		Agent:      workingAgent(stageIndex),
+		AtGate:     state == "human",
+	}
+	data.AgentLine = agentLines[agentKeyFor(stageIndex)]
+	if opp.Score > 0 {
+		data.ScorePct = int(0.5 + opp.Score*100)
+	}
+	if !opp.ResponseDeadline.IsZero() {
+		data.DeadlineLabel, data.DeadlineDays = deadlineDisplay(opp.ResponseDeadline, now)
+	}
+
+	if h.proposals != nil {
+		if doc, err := h.proposals.Document(id); err == nil {
+			data.Doc = doc
+			data.VersionLabel = versionLabel(doc)
+			data.Criteria = deriveCriteria(opp, doc)
+			for _, f := range doc.Flags {
+				if !f.Resolved {
+					data.OpenFlags = append(data.OpenFlags, f)
+				}
+			}
+		}
+	}
+
+	w.Header().Set("Content-Type", "text/html; charset=utf-8")
+	if err := h.workspaceTmpl.Execute(w, data); err != nil {
+		fmt.Printf("workspace template execution failed: %v\n", err)
+	}
+}
+
+func agentKeyFor(stageIndex int) string {
+	switch stageIndex {
+	case 0:
+		return "outline"
+	case 3:
+		return "review"
+	default:
+		return "writer"
+	}
+}
+
+// versionLabel renders the editor's version chip ("v4 · edited by you").
+func versionLabel(doc *document.Document) string {
+	if len(doc.Revisions) == 0 {
+		return ""
+	}
+	last := doc.Revisions[len(doc.Revisions)-1]
+	if last.Actor == "human" {
+		return fmt.Sprintf("v%d · edited by you", doc.Version)
+	}
+	name := last.Actor
+	if a, ok := agents[last.Actor]; ok {
+		name = a.Name
+	}
+	return fmt.Sprintf("v%d · %s", doc.Version, name)
+}
+
+// deriveCriteria checks each must-have requirement against the current
+// draft content — honest, derived state, never fabricated.
+func deriveCriteria(opp *opportunity.Opportunity, doc *document.Document) []CritItem {
+	if len(opp.Requirements) == 0 {
+		return nil
+	}
+	text := strings.ToLower(doc.Markdown())
+	items := make([]CritItem, 0, len(opp.Requirements))
+	for _, req := range opp.Requirements {
+		ok := strings.Contains(text, strings.ToLower(req))
+		item := CritItem{Label: req, OK: ok}
+		if !ok {
+			item.Note = "Not yet addressed in the draft"
+		}
+		items = append(items, item)
+	}
+	return items
+}
+
+// handleAction dispatches the gate decisions and submit.
+func (h *Handler) handleAction(action string) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		if h.proposals == nil {
+			http.Error(w, "proposal actions are not enabled on this server", http.StatusServiceUnavailable)
+			return
+		}
+		id := r.PathValue("id")
+		if !opportunityIDPattern.MatchString(id) {
+			h.renderNotFound(w, id)
+			return
+		}
+		var err error
+		switch action {
+		case "approve":
+			err = h.proposals.Approve(r.Context(), id)
+		case "changes":
+			err = h.proposals.RequestChanges(r.Context(), id, r.FormValue("note"))
+		case "submit":
+			err = h.proposals.Submit(r.Context(), id)
+		}
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusConflict)
+			return
+		}
+		http.Redirect(w, r, "/workspace/"+id, http.StatusSeeOther)
+	}
+}
+
+func (h *Handler) handleSectionSave(w http.ResponseWriter, r *http.Request) {
+	if h.proposals == nil {
+		http.Error(w, "proposal actions are not enabled on this server", http.StatusServiceUnavailable)
+		return
+	}
+	id, sid := r.PathValue("id"), r.PathValue("sid")
+	if !opportunityIDPattern.MatchString(id) || !opportunityIDPattern.MatchString(sid) {
+		h.renderNotFound(w, id)
+		return
+	}
+	if _, err := h.proposals.UpdateSection(r.Context(), id, sid, r.FormValue("body")); err != nil {
+		http.Error(w, err.Error(), http.StatusConflict)
+		return
+	}
+	// Plain form posts navigate back to the workspace; the autosave script
+	// sends fetch requests and ignores the redirect.
+	http.Redirect(w, r, "/workspace/"+id, http.StatusSeeOther)
+}
