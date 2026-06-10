@@ -29,6 +29,7 @@ type Handler struct {
 	proposalsTmpl *template.Template
 	workspaceTmpl *template.Template
 	submittedTmpl *template.Template
+	editorTmpl    *template.Template
 	notFoundTmpl  *template.Template
 	Now           func() time.Time
 }
@@ -69,6 +70,7 @@ func (h *Handler) setupRoutes() {
 	h.mux.HandleFunc("GET /submitted", h.handleSubmitted)
 	h.mux.HandleFunc("GET /submitted/export.csv", h.handleSubmittedExport)
 	h.mux.HandleFunc("GET /workspace/{id}", h.handleWorkspace)
+	h.mux.HandleFunc("GET /editor/{id}", h.handleEditor)
 	h.mux.HandleFunc("/workspace/{id}/section/{sid}", postOnly(h.handleSectionSave))
 	h.mux.HandleFunc("/workspace/{id}/approve", postOnly(h.handleAction("approve")))
 	h.mux.HandleFunc("/workspace/{id}/changes", postOnly(h.handleAction("changes")))
@@ -401,6 +403,8 @@ func (h *Handler) setupTemplates() {
 		template.New("workspace").Funcs(funcMap).Parse(shellTmpl)).Parse(workspaceContentTmpl))
 	h.submittedTmpl = template.Must(template.Must(
 		template.New("submitted").Funcs(funcMap).Parse(shellTmpl)).Parse(submittedContentTmpl))
+	// The editor is a standalone full-page surface — no app shell.
+	h.editorTmpl = template.Must(template.New("editor").Funcs(funcMap).Parse(editorPageTmpl))
 	h.notFoundTmpl = template.Must(template.New("notfound").Funcs(funcMap).Parse(notFoundTmplStr))
 }
 
