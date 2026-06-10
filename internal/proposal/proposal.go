@@ -54,6 +54,12 @@ type Deps struct {
 	Writer        manager.WriterRunner
 	Review        manager.Reviewer
 	Profile       *scorer.CapabilityProfile
+	// Ingest is optional. When set, the draft pipeline ingests the solicitation
+	// attachments before outlining, attaches the resulting SolicitationDocs to the
+	// Opportunity, and threads the extracted text into the Writer and Final Review
+	// (so the live compliance pass has documents to vet against). When nil,
+	// ingestion is skipped and the pipeline behaves exactly as before.
+	Ingest manager.Ingestor
 }
 
 // Service drives the gated Zone 2 proposal lifecycle: Select starts the
@@ -69,6 +75,12 @@ type Service struct {
 	mu      sync.Mutex
 	running map[string]bool
 	wg      sync.WaitGroup
+	// docText caches the ingested filename->text per opportunity, populated by the
+	// draft pipeline and read back at the (separately triggered) Final Review so
+	// the compliance pass has the documents without re-fetching. A cache miss
+	// (e.g. a server restart across the human gate) degrades to a review with no
+	// documents, never an error.
+	docText map[string]map[string]string
 }
 
 // NewService validates deps and returns a Service.
@@ -77,6 +89,7 @@ func NewService(deps *Deps) *Service {
 		deps:    deps,
 		Now:     time.Now,
 		running: make(map[string]bool),
+		docText: make(map[string]map[string]string),
 	}
 }
 
@@ -239,6 +252,10 @@ func (s *Service) runDraftPipeline(ctx context.Context, oppID string) {
 		return
 	}
 
+	// Step 0: ingest the solicitation documents (best-effort). Their text grounds
+	// the Writer and the Final Review compliance pass.
+	documents := s.ingestDocuments(ctx, opp)
+
 	out, res, err := s.deps.Outline.Run(ctx, opp)
 	if err != nil || res == nil || res.IsFailed() || out == nil {
 		s.failStatus(ctx, oppID, "outline:failed")
@@ -259,7 +276,46 @@ func (s *Service) runDraftPipeline(ctx context.Context, oppID string) {
 	if err := s.setStatus(ctx, oppID, StatusWriterRunning); err != nil {
 		return
 	}
-	s.draftSections(ctx, oppID, opp, out, "Draft from the technical writer")
+	s.draftSections(ctx, oppID, opp, out, documents, "Draft from the technical writer")
+}
+
+// ingestDocuments runs the optional ingest stage for opp, attaches the resulting
+// SolicitationDocs to the Opportunity, caches their extracted text for the later
+// Final Review, and returns the filename->text map. It is best-effort: when no
+// ingestor is configured it returns nil, and any ingest error degrades to nil
+// (the pipeline continues without documents) rather than failing the proposal.
+func (s *Service) ingestDocuments(ctx context.Context, opp *opportunity.Opportunity) map[string]string {
+	if s.deps.Ingest == nil {
+		return nil
+	}
+	docs, texts, _, err := s.deps.Ingest.Ingest(ctx, opp)
+	if err != nil {
+		// Ingestion is enrichment, not a gate here — the human still reviews every
+		// draft. Continue without documents.
+		return nil
+	}
+	if len(docs) > 0 {
+		opp.Documents = docs
+		opp.UpdatedAt = s.Now()
+		// Persist the attached documents; ignore a save error (non-fatal to drafting).
+		_ = s.deps.Opportunities.Save(ctx, opp)
+	}
+	s.cacheDocText(opp.ID, texts)
+	return texts
+}
+
+// cacheDocText stores the per-opportunity extracted text for later stages.
+func (s *Service) cacheDocText(oppID string, texts map[string]string) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.docText[oppID] = texts
+}
+
+// cachedDocText returns the cached extracted text for an opportunity, or nil.
+func (s *Service) cachedDocText(oppID string) map[string]string {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.docText[oppID]
 }
 
 // runRevision re-runs the Writer over the existing document after a
@@ -274,14 +330,15 @@ func (s *Service) runRevision(ctx context.Context, oppID string) {
 		s.failStatus(ctx, oppID, "writer:failed")
 		return
 	}
-	s.draftSections(ctx, oppID, opp, outlineFromDocument(doc), "Revised draft after change request")
+	// Reuse the document text cached at draft time (revisions never re-ingest).
+	s.draftSections(ctx, oppID, opp, outlineFromDocument(doc), s.cachedDocText(oppID), "Revised draft after change request")
 }
 
 // draftSections runs the Writer agent ONE SECTION AT A TIME (issue #158),
 // applying each drafted section to the document as it completes so the
 // human can review the outline — and watch the draft grow — while the
 // writer works. It pauses at the gate when every section is drafted.
-func (s *Service) draftSections(ctx context.Context, oppID string, opp *opportunity.Opportunity, out *outline.Outline, note string) {
+func (s *Service) draftSections(ctx context.Context, oppID string, opp *opportunity.Opportunity, out *outline.Outline, documents map[string]string, note string) {
 	for _, section := range out.Sections {
 		// A one-section outline keeps the Writer's per-section prompting
 		// identical while letting the document update incrementally.
@@ -296,6 +353,7 @@ func (s *Service) draftSections(ctx context.Context, oppID string, opp *opportun
 			Opportunity: opp,
 			Outline:     single,
 			Profile:     s.deps.Profile,
+			Documents:   documents,
 		})
 		if err != nil || res == nil || res.IsFailed() {
 			// Keep whatever sections already landed; surface the failure.
@@ -332,6 +390,7 @@ func (s *Service) runFinalReview(ctx context.Context, oppID string) {
 		Draft:       doc.Markdown(),
 		Opportunity: opp,
 		Outline:     outlineFromDocument(doc),
+		Documents:   s.cachedDocText(oppID),
 	})
 	if err != nil || res == nil {
 		s.failStatus(ctx, oppID, "final-review:failed")

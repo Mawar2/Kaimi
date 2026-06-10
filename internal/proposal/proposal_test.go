@@ -241,6 +241,7 @@ type recordingWriter struct {
 type writerCall struct {
 	sectionCount int
 	title        string
+	documents    map[string]string
 }
 
 func (r *recordingWriter) Run(_ context.Context, in writer.Input) (string, *agent.Result, error) {
@@ -250,9 +251,144 @@ func (r *recordingWriter) Run(_ context.Context, in writer.Input) (string, *agen
 	if len(in.Outline.Sections) > 0 {
 		title = in.Outline.Sections[0].Title
 	}
-	r.calls = append(r.calls, writerCall{sectionCount: len(in.Outline.Sections), title: title})
+	r.calls = append(r.calls, writerCall{sectionCount: len(in.Outline.Sections), title: title, documents: in.Documents})
 	draft := "\n## " + title + "\nDrafted body for " + title + "\n"
 	return draft, &agent.Result{AgentName: "writer", Status: agent.StatusSuccess, CompletedAt: time.Now()}, nil
+}
+
+// fakeIngestor returns canned documents and extracted text.
+type fakeIngestor struct {
+	docs  []opportunity.SolicitationDoc
+	texts map[string]string
+}
+
+func (f *fakeIngestor) Ingest(_ context.Context, _ *opportunity.Opportunity) ([]opportunity.SolicitationDoc, map[string]string, *agent.Result, error) {
+	return f.docs, f.texts, &agent.Result{AgentName: "ingest", Status: agent.StatusSuccess, CompletedAt: time.Now()}, nil
+}
+
+// recordingReviewer captures the finalreview.Input it receives.
+type recordingReviewer struct {
+	mu        sync.Mutex
+	gotDocs   map[string]string
+	gotCalled bool
+}
+
+func (r *recordingReviewer) Review(_ context.Context, in finalreview.Input) (*agent.Result, error) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.gotCalled = true
+	r.gotDocs = in.Documents
+	return &agent.Result{AgentName: "final-review", Status: agent.StatusReadyToSubmit, CompletedAt: time.Now()}, nil
+}
+
+// TestIngestion_ThreadsDocumentTextToWriterAndReview proves that when an Ingestor
+// is configured, its extracted text reaches both the Writer (at draft time) and
+// the Final Review (at the separately-triggered Approve step, from the cache).
+func TestIngestion_ThreadsDocumentTextToWriterAndReview(t *testing.T) {
+	dir := t.TempDir()
+	opps, err := store.NewJSONStore(dir)
+	if err != nil {
+		t.Fatalf("store: %v", err)
+	}
+	docs, err := document.NewStore(dir)
+	if err != nil {
+		t.Fatalf("docs: %v", err)
+	}
+	docsClient, err := googledocs.NewClient(context.Background(), googledocs.Config{UseCached: true})
+	if err != nil {
+		t.Fatalf("docs client: %v", err)
+	}
+	rec := &recordingWriter{}
+	rev := &recordingReviewer{}
+	ing := &fakeIngestor{
+		docs:  []opportunity.SolicitationDoc{{Filename: "rfp.pdf", TextObject: "gs://b/zta-1/text/rfp.pdf.txt"}},
+		texts: map[string]string{"rfp.pdf": "Offerors shall provide a FedRAMP High authorization."},
+	}
+	svc := NewService(&Deps{
+		Opportunities: opps,
+		Documents:     docs,
+		Outline:       outline.New(docsClient),
+		Writer:        rec,
+		Review:        rev,
+		Profile:       &scorer.CapabilityProfile{},
+		Ingest:        ing,
+	})
+	seedOpp(t, opps)
+
+	// Draft pipeline: ingestion runs, Writer receives the document text.
+	if err := svc.Select(context.Background(), "zta-1"); err != nil {
+		t.Fatalf("Select: %v", err)
+	}
+	svc.Wait()
+
+	if len(rec.calls) == 0 {
+		t.Fatal("writer was never called")
+	}
+	if got := rec.calls[0].documents["rfp.pdf"]; got != "Offerors shall provide a FedRAMP High authorization." {
+		t.Errorf("writer did not receive ingested document text: %q", got)
+	}
+	// Documents were attached to the persisted opportunity.
+	saved, err := opps.Get(context.Background(), "zta-1")
+	if err != nil {
+		t.Fatalf("Get: %v", err)
+	}
+	if len(saved.Documents) != 1 || saved.Documents[0].Filename != "rfp.pdf" {
+		t.Errorf("ingested documents not attached to opportunity: %+v", saved.Documents)
+	}
+
+	// Approve: Final Review receives the same text from the cache across the gate.
+	if err := svc.Approve(context.Background(), "zta-1"); err != nil {
+		t.Fatalf("Approve: %v", err)
+	}
+	svc.Wait()
+
+	if !rev.gotCalled {
+		t.Fatal("final review was never called")
+	}
+	if got := rev.gotDocs["rfp.pdf"]; got != "Offerors shall provide a FedRAMP High authorization." {
+		t.Errorf("final review did not receive ingested document text: %q", got)
+	}
+}
+
+// TestNoIngestor_NoDocumentsThreaded confirms the pipeline is unchanged without
+// an ingestor: the Writer receives nil Documents.
+func TestNoIngestor_NoDocumentsThreaded(t *testing.T) {
+	dir := t.TempDir()
+	opps, err := store.NewJSONStore(dir)
+	if err != nil {
+		t.Fatalf("store: %v", err)
+	}
+	docs, err := document.NewStore(dir)
+	if err != nil {
+		t.Fatalf("docs: %v", err)
+	}
+	docsClient, err := googledocs.NewClient(context.Background(), googledocs.Config{UseCached: true})
+	if err != nil {
+		t.Fatalf("docs client: %v", err)
+	}
+	rec := &recordingWriter{}
+	svc := NewService(&Deps{
+		Opportunities: opps,
+		Documents:     docs,
+		Outline:       outline.New(docsClient),
+		Writer:        rec,
+		Review:        finalreview.New(),
+		Profile:       &scorer.CapabilityProfile{},
+		// no Ingest
+	})
+	seedOpp(t, opps)
+
+	if err := svc.Select(context.Background(), "zta-1"); err != nil {
+		t.Fatalf("Select: %v", err)
+	}
+	svc.Wait()
+
+	if len(rec.calls) == 0 {
+		t.Fatal("writer was never called")
+	}
+	if rec.calls[0].documents != nil {
+		t.Errorf("expected nil Documents without an ingestor, got %v", rec.calls[0].documents)
+	}
 }
 
 // TestWriterDraftsSectionBySection proves the document grows incrementally:
