@@ -43,23 +43,27 @@ func (h *Handler) setupTemplates() {
   <meta charset="UTF-8">
   <meta http-equiv="refresh" content="30">
   <title>Kaimi — {{.PageTitle}}</title>
+  {{faviconLink}}
+  {{styleTag}}
   <style>
-    body { font-family: sans-serif; margin: 1rem 2rem; color: #222; }
-    table { border-collapse: collapse; width: 100%; }
-    th, td { border: 1px solid #ddd; padding: 0.4rem 0.6rem; text-align: left; }
-    th { background: #f5f5f5; }
-    tr:nth-child(even) { background: #fafafa; }
+    /* Page-specific rules only; all visual values come from the design-system
+       tokens emitted by styleTag (docs/dashboard/ux-spec.md, issue #141). */
+    body { margin: 1rem 2rem; }
+    table { border-collapse: collapse; width: 100%; background: var(--surface); }
+    th, td { border: 1px solid var(--border); padding: 0.4rem 0.6rem; text-align: left; }
+    th { background: var(--surface-2); }
+    tr:nth-child(even) { background: var(--surface-2); }
     .stage-cards { display: flex; gap: 1rem; flex-wrap: wrap; margin-bottom: 1.5rem; }
-    .stage-card { border: 1px solid #ccc; border-radius: 4px; padding: 0.75rem 1rem; min-width: 120px; }
-    .stage-card .count { font-size: 2rem; font-weight: bold; }
-    .stage-card-alert { background: #fffbe6; border-color: #f0c040; }
-    .deadline-soon { background: #fff0f0; color: #c00; font-weight: bold; }
-    .filter-bar { margin-bottom: 0.75rem; font-size: 0.9rem; color: #555; }
-    a { color: #0057b8; }
+    .stage-card { background: var(--surface); border: 1px solid var(--border); border-radius: var(--r-sm); padding: 0.75rem 1rem; min-width: 120px; }
+    .stage-card .count { font-size: 2rem; font-weight: bold; font-family: var(--font-mono); }
+    .stage-card-alert { background: var(--st-human-bg); border-color: var(--st-human); }
+    .deadline-soon { background: var(--st-failed-bg); color: var(--st-failed); font-weight: bold; }
+    .filter-bar { margin-bottom: 0.75rem; font-size: 0.9rem; color: var(--ink-3); }
+    a { color: var(--primary); }
   </style>
 </head>
 <body>
-  <h1>Kaimi Pipeline</h1>
+  {{headerLockup}}
   <div class="stage-cards">
     {{range .Cards}}
     <div class="stage-card {{if .Alert}}stage-card-alert{{end}}">
@@ -142,6 +146,11 @@ func (h *Handler) setupTemplates() {
 `
 	funcMap := template.FuncMap{
 		"multiply": func(a, b float64) float64 { return a * b },
+		// Brand and design-system assets (issues #126/#132/#141): the layout
+		// composes these instead of hardcoding visual values.
+		"faviconLink":  FaviconLink,
+		"styleTag":     StyleTag,
+		"headerLockup": HeaderLockup,
 	}
 	h.tmpl = template.Must(template.New("layout").Funcs(funcMap).Parse(layoutTmpl))
 }
