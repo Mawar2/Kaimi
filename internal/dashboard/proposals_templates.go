@@ -328,6 +328,19 @@ const workspaceContentTmpl = `{{define "content"}}
     </div>
   </div>
   {{end}}
+
+  {{if and .Doc (not .AtGate)}}
+  <div class="r-sec-h" style="margin-top:30px">
+    Working draft — {{if eq .State "progress"}}review it while the agents work{{else}}final content{{end}}
+    <span class="ed-save-chip">{{.VersionLabel}}</span>
+  </div>
+  {{range .Doc.Sections}}
+  <section class="edsec">
+    <div class="sec-head2"><h3>{{.Heading}}</h3><span class="reqtag">{{.Status}}</span></div>
+    {{if .Body}}<div class="draft-body">{{.Body}}</div>{{else}}<div class="draft-pending">Tomás is drafting this section…</div>{{end}}
+  </section>
+  {{end}}
+  {{end}}
 </div>
 
 <style>
@@ -340,6 +353,8 @@ const workspaceContentTmpl = `{{define "content"}}
   .ed-save-chip { font: 600 11px/1 var(--font-sans); color: var(--st-done); margin-left: 8px; text-transform: none; letter-spacing: 0; }
   .ed-save-chip.saving { color: var(--ink-3); }
   .r-actions form { margin: 0; }
+  .draft-body { white-space: pre-wrap; background: #fff; border: 1px solid var(--border); border-radius: var(--r-md); padding: 12px 14px; font: var(--t-body); color: var(--ink); }
+  .draft-pending { border: 1px dashed var(--border); border-radius: var(--r-md); padding: 12px 14px; font: var(--t-small); color: var(--ink-3); font-style: italic; }
 </style>
 <script>
   // Autosave: debounce section edits into background POSTs so the draft.md
