@@ -277,21 +277,37 @@ func (s *Service) runRevision(ctx context.Context, oppID string) {
 	s.draftSections(ctx, oppID, opp, outlineFromDocument(doc), "Revised draft after change request")
 }
 
-// draftSections runs the Writer agent, applies its draft to the document
-// section by section, and pauses at the gate.
+// draftSections runs the Writer agent ONE SECTION AT A TIME (issue #158),
+// applying each drafted section to the document as it completes so the
+// human can review the outline — and watch the draft grow — while the
+// writer works. It pauses at the gate when every section is drafted.
 func (s *Service) draftSections(ctx context.Context, oppID string, opp *opportunity.Opportunity, out *outline.Outline, note string) {
-	draft, res, err := s.deps.Writer.Run(ctx, writer.Input{
-		Opportunity: opp,
-		Outline:     out,
-		Profile:     s.deps.Profile,
-	})
-	if err != nil || res == nil || res.IsFailed() {
-		s.failStatus(ctx, oppID, "writer:failed")
-		return
-	}
-	bodies := splitDraft(draft, out)
-	if len(bodies) > 0 {
-		if _, err := s.deps.Documents.ReplaceSections(oppID, bodies, "writer", note); err != nil {
+	for _, section := range out.Sections {
+		// A one-section outline keeps the Writer's per-section prompting
+		// identical while letting the document update incrementally.
+		single := &outline.Outline{
+			OpportunityID:   out.OpportunityID,
+			Title:           out.Title,
+			Sections:        []outline.Section{section},
+			FormattingRules: out.FormattingRules,
+			GeneratedAt:     out.GeneratedAt,
+		}
+		draft, res, err := s.deps.Writer.Run(ctx, writer.Input{
+			Opportunity: opp,
+			Outline:     single,
+			Profile:     s.deps.Profile,
+		})
+		if err != nil || res == nil || res.IsFailed() {
+			// Keep whatever sections already landed; surface the failure.
+			s.failStatus(ctx, oppID, "writer:failed")
+			return
+		}
+		bodies := splitDraft(draft, single)
+		if len(bodies) == 0 {
+			continue
+		}
+		if _, err := s.deps.Documents.ReplaceSections(oppID, bodies, "writer",
+			fmt.Sprintf("%s — %s", note, section.Title)); err != nil {
 			s.failStatus(ctx, oppID, "writer:failed")
 			return
 		}

@@ -3,9 +3,11 @@ package proposal
 import (
 	"context"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
+	"github.com/Mawar2/Kaimi/internal/agent"
 	"github.com/Mawar2/Kaimi/internal/document"
 	"github.com/Mawar2/Kaimi/internal/finalreview"
 	"github.com/Mawar2/Kaimi/internal/googledocs"
@@ -226,5 +228,91 @@ func TestGuards(t *testing.T) {
 	}
 	if err := svc.Select(context.Background(), "missing"); err == nil {
 		t.Errorf("Select on unknown opportunity must fail")
+	}
+}
+
+// recordingWriter records every Run call so tests can prove section-by-
+// section drafting (issue #158).
+type recordingWriter struct {
+	mu    sync.Mutex
+	calls []writerCall
+}
+
+type writerCall struct {
+	sectionCount int
+	title        string
+}
+
+func (r *recordingWriter) Run(_ context.Context, in writer.Input) (string, *agent.Result, error) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	title := ""
+	if len(in.Outline.Sections) > 0 {
+		title = in.Outline.Sections[0].Title
+	}
+	r.calls = append(r.calls, writerCall{sectionCount: len(in.Outline.Sections), title: title})
+	draft := "\n## " + title + "\nDrafted body for " + title + "\n"
+	return draft, &agent.Result{AgentName: "writer", Status: agent.StatusSuccess, CompletedAt: time.Now()}, nil
+}
+
+// TestWriterDraftsSectionBySection proves the document grows incrementally:
+// one Writer run per outline section, applied as each completes, so the
+// human can review the outline (and early sections) while drafting runs.
+func TestWriterDraftsSectionBySection(t *testing.T) {
+	dir := t.TempDir()
+	opps, err := store.NewJSONStore(dir)
+	if err != nil {
+		t.Fatalf("store: %v", err)
+	}
+	docs, err := document.NewStore(dir)
+	if err != nil {
+		t.Fatalf("docs: %v", err)
+	}
+	docsClient, err := googledocs.NewClient(context.Background(), googledocs.Config{UseCached: true})
+	if err != nil {
+		t.Fatalf("docs client: %v", err)
+	}
+	rec := &recordingWriter{}
+	svc := NewService(&Deps{
+		Opportunities: opps,
+		Documents:     docs,
+		Outline:       outline.New(docsClient),
+		Writer:        rec,
+		Review:        finalreview.New(),
+		Profile:       &scorer.CapabilityProfile{},
+	})
+	seedOpp(t, opps)
+
+	if err := svc.Select(context.Background(), "zta-1"); err != nil {
+		t.Fatalf("Select: %v", err)
+	}
+	svc.Wait()
+
+	doc, err := svc.Document("zta-1")
+	if err != nil {
+		t.Fatalf("Document: %v", err)
+	}
+	if len(rec.calls) != len(doc.Sections) {
+		t.Fatalf("writer ran %d times for %d sections — want one run per section", len(rec.calls), len(doc.Sections))
+	}
+	for _, c := range rec.calls {
+		if c.sectionCount != 1 {
+			t.Errorf("each writer run must receive a single-section outline, got %d (%q)", c.sectionCount, c.title)
+		}
+	}
+	for _, sec := range doc.Sections {
+		if !strings.Contains(sec.Body, "Drafted body for "+sec.Heading) {
+			t.Errorf("section %q body not applied from its own run", sec.ID)
+		}
+	}
+	// Incremental application means one writer revision per section.
+	writerRevs := 0
+	for _, r := range doc.Revisions {
+		if r.Actor == "writer" {
+			writerRevs++
+		}
+	}
+	if writerRevs != len(doc.Sections) {
+		t.Errorf("want %d writer revisions (one per section), got %d", len(doc.Sections), writerRevs)
 	}
 }

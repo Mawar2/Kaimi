@@ -226,3 +226,70 @@ func TestActionsWithoutProposalService(t *testing.T) {
 		t.Errorf("select without service: status %d, want 503", rr.Code)
 	}
 }
+
+// TestWorkspaceShowsLivingDocumentWhileAgentsWork (issue #158): once Noa has
+// built the skeleton the human sees the actual document — read-only — while
+// Tomás is still drafting.
+func TestWorkspaceShowsLivingDocumentWhileAgentsWork(t *testing.T) {
+	dir := t.TempDir()
+	opps, err := store.NewJSONStore(dir)
+	if err != nil {
+		t.Fatalf("store: %v", err)
+	}
+	docs, err := document.NewStore(dir)
+	if err != nil {
+		t.Fatalf("docs: %v", err)
+	}
+	docsClient, err := googledocs.NewClient(context.Background(), googledocs.Config{UseCached: true})
+	if err != nil {
+		t.Fatalf("docs client: %v", err)
+	}
+	svc := proposal.NewService(&proposal.Deps{
+		Opportunities: opps,
+		Documents:     docs,
+		Outline:       outline.New(docsClient),
+		Writer:        writer.New(),
+		Review:        finalreview.New(),
+	})
+
+	// Mid-writer snapshot: skeleton exists, first section drafted, second
+	// still outlined, status writer:in_progress.
+	now := time.Now()
+	opp := &opportunity.Opportunity{
+		ID: "mid-1", Title: "Mid-Draft Opp", Agency: "GSA",
+		Selected: true, SelectedAt: &now, ProposalStatus: "writer:in_progress",
+		ResponseDeadline: now.Add(20 * 24 * time.Hour), UpdatedAt: now,
+	}
+	if err := opps.Save(context.Background(), opp); err != nil {
+		t.Fatalf("seed: %v", err)
+	}
+	doc := &document.Document{
+		OpportunityID: "mid-1",
+		Title:         "Mid-Draft Opp — Technical Volume",
+		Sections: []document.Section{
+			{ID: "exec_summary", Heading: "Executive Summary", Body: "Already drafted.", Status: "drafted"},
+			{ID: "technical_approach", Heading: "Technical Approach", Status: "outlined"},
+		},
+	}
+	if err := docs.Create(doc, "outline", "skeleton"); err != nil {
+		t.Fatalf("create doc: %v", err)
+	}
+
+	h := dashboard.NewHandler(dashboard.NewService(opps), dashboard.WithProposals(svc))
+	body := get(t, h, "/workspace/mid-1")
+
+	for _, want := range []string{
+		"Tomás is working",      // the calm working card stays
+		"Executive Summary",     // the document is visible…
+		"Already drafted.",      // …with drafted content…
+		"Technical Approach",    // …and the not-yet-drafted section…
+		"drafting this section", // …shows the placeholder
+	} {
+		if !contains(body, want) {
+			t.Errorf("mid-draft workspace missing %q", want)
+		}
+	}
+	if contains(body, "<textarea") {
+		t.Errorf("the document must be read-only outside the gate")
+	}
+}
