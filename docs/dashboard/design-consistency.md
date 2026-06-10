@@ -28,14 +28,6 @@ bin\dashboard.exe --store=.\design-store --port=8901             # NB: kill stal
 # browser: gstack-browse goto http://127.0.0.1:8901/ → screenshot → diff vs screenshots/
 ```
 
-Gotchas logged:
-- Windows locks a running `.exe`, so `go build` cannot overwrite a live `dashboard.exe`.
-  Stop every listener on the port first; a zombie process serves the **old** bytes and
-  silently masks your change. Confirm with a byte-count delta + a `grep -c` on served HTML.
-- To render populated Zone-2 views, hand-add opportunity JSONs under `design-store/queue/`
-  with `"selected":true` + a `"proposal_status"` (e.g. `writer:needs_human` → Waiting on you,
-  `writer:in_progress` → Agents working, `final-review:ready_to_submit` → Ready to submit).
-
 ## Surface status
 
 | Surface | Route | Reference shot | Audited | Fixed | Browser-verified | 2× clean design-review |
@@ -51,7 +43,7 @@ Gotchas logged:
 
 ### 2026-06-10 — Global typography: self-host Figtree + Geist Mono (PR #203, issue #202)
 
-`StyleTag()` declared `--font-sans: "Figtree"` / `--font-mono: "Geist Mono"` but embedded
+StyleTag() declared `--font-sans: "Figtree"` / `--font-mono: "Geist Mono"` but embedded
 **no `@font-face`**, so the served UI fell back to system fonts and drifted from the comps.
 (`document.fonts.check('…Figtree')` lies — returns `true` when no matching `@font-face`
 exists, meaning "nothing pending," not "installed.") Fix: self-host both as inline base64
@@ -66,6 +58,17 @@ design-system token order + Malik's call. Variable builds (non-standard token we
 magic numbers. Fix: title styled solely by `.dr-top h2`; table → `--t-small` / `--s-2`/
 `--s-3`. Corrected a stale ux-spec Non-Goals note (Select-to-pursue is implemented, #156).
 Verified no regression: title 21px/700/22ch, no inline style; `.kv` cells 8px 12px / 13px.
+
+### 2026-06-10 — Fix agent-avatar gradient ZgotmplZ (PR #218 / PR #219, issue #218)
+
+Follow-up from the Workspace surface. The progress-state avatar
+(`proposals_templates.go:290`) interpolates `{{.Agent.HueBG}}` (a `linear-gradient`) into a
+style attribute; with `HueBG` typed `string`, html/template sanitized it to `ZgotmplZ`,
+blanking the avatar background in the live-writer flow. Fix: type `agentIdentity.HueBG` as
+`template.CSS` (static map constants — safe). That also let the gate handoff avatar (`:226`)
+dedup through the `agents` map (define-once) instead of repeating the literal. Browser-verified:
+gate avatar renders `linear-gradient(155deg,#67E0F4,#0EA5C4)`, **no `ZgotmplZ`**. TDD
+`TestAgentGradientIsStyleSafe`; `make all`-green; lint clean.
 
 ### 2026-06-10 — Proposals command view: card link reset (PR pending, issue #207)
 
