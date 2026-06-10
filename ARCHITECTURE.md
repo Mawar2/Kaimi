@@ -255,7 +255,7 @@ the Hunter.
 Significant architectural decisions made AFTER initial genesis are recorded as ADRs in `docs/adr/`. Each ADR uses the [Michael Nygard format](https://cognitect.com/blog/2011/11/15/documenting-architecture-decisions): Context, Decision, Status, Consequences. ADRs are append-only — superseded decisions stay in the record with status updated to "Superseded by ADR-XXX."
 
 **Current ADRs:**
-- **ADR-001 — Desktop dashboard stack: Wails v2 (Go)** (`docs/desktop/adr-001-stack.md`, proposed 2026-06-10, pending approval on issue #137). Desktop ADRs are co-located with the desktop docs under `docs/desktop/` rather than `docs/adr/`, cross-referenced from here.
+- **ADR-001 — Desktop dashboard stack: Wails v2 (Go)** (`docs/desktop/adr-001-stack.md`, accepted 2026-06-09, issue #137 / PR #144). Desktop ADRs are co-located with the desktop docs under `docs/desktop/` rather than `docs/adr/`, cross-referenced from here.
 
 ---
 

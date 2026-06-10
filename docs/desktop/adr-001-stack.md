@@ -1,6 +1,6 @@
 # ADR-001 — Desktop dashboard stack: Wails v2 (Go) over Tauri / Electron
 
-**Status:** Proposed — awaiting Malik's approval on [issue #137](https://github.com/Mawar2/Kaimi/issues/137)
+**Status:** Accepted — approved by Malik 2026-06-09 (on [issue #137](https://github.com/Mawar2/Kaimi/issues/137) / PR #144). Unblocks #138.
 **Date:** 2026-06-10
 **Deciders:** Malik (approver), implementing session (author)
 **Supersedes:** none
