@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io"
 
 	"cloud.google.com/go/storage"
 	"google.golang.org/api/option"
@@ -64,6 +65,21 @@ func (s *GCSStore) Put(ctx context.Context, object string, data []byte, contentT
 		return "", fmt.Errorf("gcsstore: close %s: %w", object, err)
 	}
 	return s.URI(object), nil
+}
+
+// Read returns the bytes stored under object.
+func (s *GCSStore) Read(ctx context.Context, object string) ([]byte, error) {
+	r, err := s.client.Bucket(s.bucket).Object(object).NewReader(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("gcsstore: open %s: %w", object, err)
+	}
+	defer func() { _ = r.Close() }()
+
+	data, err := io.ReadAll(r)
+	if err != nil {
+		return nil, fmt.Errorf("gcsstore: read %s: %w", object, err)
+	}
+	return data, nil
 }
 
 // URI returns the gs:// URI for object.

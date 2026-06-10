@@ -61,6 +61,14 @@ func (m *memStore) Put(_ context.Context, object string, data []byte, _, sha str
 	return m.URI(object), nil
 }
 
+func (m *memStore) Read(_ context.Context, object string) ([]byte, error) {
+	b, ok := m.objects[object]
+	if !ok {
+		return nil, fmt.Errorf("memStore: object %q not found", object)
+	}
+	return b, nil
+}
+
 func (m *memStore) URI(object string) string {
 	return "gs://" + m.bucket + "/" + object
 }
@@ -93,7 +101,7 @@ func TestIngest_HappyPath_FetchesUploadsExtracts(t *testing.T) {
 
 	opp := &opportunity.Opportunity{ID: "N-1", Attachments: []string{"https://sam.gov/n/1/rfp.pdf"}}
 
-	docs, res, err := a.Ingest(context.Background(), opp)
+	docs, texts, res, err := a.Ingest(context.Background(), opp)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -102,6 +110,9 @@ func TestIngest_HappyPath_FetchesUploadsExtracts(t *testing.T) {
 	}
 	if len(docs) != 1 {
 		t.Fatalf("got %d docs, want 1", len(docs))
+	}
+	if texts["rfp.pdf"] != "Section L instructions..." {
+		t.Errorf("texts[rfp.pdf] = %q, want extracted text returned in-memory", texts["rfp.pdf"])
 	}
 	d := docs[0]
 	if d.Filename != "rfp.pdf" || d.SourceURL != "https://sam.gov/n/1/rfp.pdf" {
@@ -133,7 +144,7 @@ func TestIngest_HappyPath_FetchesUploadsExtracts(t *testing.T) {
 
 func TestIngest_NoAttachments_SucceedsWithNoDocs(t *testing.T) {
 	a := New(&fakeFetcher{}, newMemStore(), &fakeExtractor{})
-	docs, res, err := a.Ingest(context.Background(), &opportunity.Opportunity{ID: "N-2"})
+	docs, texts, res, err := a.Ingest(context.Background(), &opportunity.Opportunity{ID: "N-2"})
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -143,6 +154,9 @@ func TestIngest_NoAttachments_SucceedsWithNoDocs(t *testing.T) {
 	if len(docs) != 0 {
 		t.Errorf("got %d docs, want 0", len(docs))
 	}
+	if len(texts) != 0 {
+		t.Errorf("got %d texts, want 0", len(texts))
+	}
 }
 
 func TestIngest_Idempotent_SkipsReuploadWhenShaMatches(t *testing.T) {
@@ -151,16 +165,22 @@ func TestIngest_Idempotent_SkipsReuploadWhenShaMatches(t *testing.T) {
 		"u": {data: raw, contentType: "application/pdf", filename: "a.pdf"},
 	}}
 	store := newMemStore()
-	// Pre-seed the raw object with the SAME sha => dedup should skip re-upload.
+	// Pre-seed the raw object with the SAME sha and the previously-extracted text
+	// => dedup should skip re-upload AND skip (metered) re-extraction, loading the
+	// stored text back from the store instead.
 	store.shas["N-3/raw/a.pdf"] = sha256hex(raw)
-	a := New(fetch, store, &fakeExtractor{text: "x"})
+	store.objects["N-3/text/a.pdf.txt"] = []byte("previously extracted text")
+	store.shas["N-3/text/a.pdf.txt"] = sha256hex([]byte("previously extracted text"))
+	// If the extractor is ever called on this run, the test fails — re-extraction
+	// would defeat idempotency (and re-bill Document AI).
+	a := New(fetch, store, &fakeExtractor{err: fmt.Errorf("extractor must not run on dedup")})
 
-	docs, res, err := a.Ingest(context.Background(), &opportunity.Opportunity{ID: "N-3", Attachments: []string{"u"}})
+	docs, texts, res, err := a.Ingest(context.Background(), &opportunity.Opportunity{ID: "N-3", Attachments: []string{"u"}})
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
 	if res.Status != agent.StatusSuccess {
-		t.Fatalf("status = %q, want success", res.Status)
+		t.Fatalf("status = %q, want success; flags=%v", res.Status, res.Flags)
 	}
 	if len(docs) != 1 {
 		t.Fatalf("got %d docs, want 1", len(docs))
@@ -172,6 +192,10 @@ func TestIngest_Idempotent_SkipsReuploadWhenShaMatches(t *testing.T) {
 	if docs[0].RawObject != "gs://test-bucket/N-3/raw/a.pdf" {
 		t.Errorf("RawObject = %q", docs[0].RawObject)
 	}
+	// Stored text is loaded back into memory for the Manager to thread downstream.
+	if texts["a.pdf"] != "previously extracted text" {
+		t.Errorf("texts[a.pdf] = %q, want stored text read back on dedup", texts["a.pdf"])
+	}
 }
 
 func TestIngest_FetchFailure_RoutesToNeedsHuman(t *testing.T) {
@@ -181,7 +205,7 @@ func TestIngest_FetchFailure_RoutesToNeedsHuman(t *testing.T) {
 		"ok": {data: good, contentType: "application/pdf", filename: "ok.pdf"},
 	}}
 	a := New(fetch, newMemStore(), &fakeExtractor{text: "t"})
-	docs, res, err := a.Ingest(context.Background(), &opportunity.Opportunity{
+	docs, _, res, err := a.Ingest(context.Background(), &opportunity.Opportunity{
 		ID: "N-4", Attachments: []string{"ok", "missing"},
 	})
 	if err != nil {
@@ -200,7 +224,7 @@ func TestIngest_FetchFailure_RoutesToNeedsHuman(t *testing.T) {
 
 func TestIngest_AllFetchesFail_RoutesToFailed(t *testing.T) {
 	a := New(&fakeFetcher{}, newMemStore(), &fakeExtractor{})
-	docs, res, err := a.Ingest(context.Background(), &opportunity.Opportunity{
+	docs, _, res, err := a.Ingest(context.Background(), &opportunity.Opportunity{
 		ID: "N-5", Attachments: []string{"x", "y"},
 	})
 	if err != nil {
@@ -223,7 +247,7 @@ func TestIngest_EmptyExtraction_RecordsDocButFlags(t *testing.T) {
 	}}
 	store := newMemStore()
 	a := New(fetch, store, &fakeExtractor{text: "   "}) // whitespace only
-	docs, res, err := a.Ingest(context.Background(), &opportunity.Opportunity{ID: "N-6", Attachments: []string{"s"}})
+	docs, _, res, err := a.Ingest(context.Background(), &opportunity.Opportunity{ID: "N-6", Attachments: []string{"s"}})
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -244,7 +268,7 @@ func TestIngest_EmptyExtraction_RecordsDocButFlags(t *testing.T) {
 
 func TestIngest_NilOpportunity_Errors(t *testing.T) {
 	a := New(&fakeFetcher{}, newMemStore(), &fakeExtractor{})
-	if _, _, err := a.Ingest(context.Background(), nil); err == nil {
+	if _, _, _, err := a.Ingest(context.Background(), nil); err == nil {
 		t.Fatal("expected error for nil opportunity")
 	}
 }

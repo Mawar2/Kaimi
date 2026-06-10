@@ -36,6 +36,10 @@ type ObjectStore interface {
 	// Put writes data under object, recording sha256hex as its checksum, and
 	// returns the gs:// URI.
 	Put(ctx context.Context, object string, data []byte, contentType, sha256hex string) (uri string, err error)
+	// Read returns the bytes previously stored under object. It is used only on
+	// the idempotent re-ingest path, to load already-extracted text back into
+	// memory without re-running extraction.
+	Read(ctx context.Context, object string) ([]byte, error)
 	// URI returns the gs:// URI for object without writing anything.
 	URI(object string) string
 }
@@ -64,8 +68,10 @@ func New(f Fetcher, s ObjectStore, e Extractor) *Agent {
 // Ingest fetches, stores, and extracts every attachment on opp.
 //
 // It returns one SolicitationDoc per successfully fetched attachment (the raw
-// file is always saved, even when text extraction yields nothing), plus an
-// agent.Result describing the outcome:
+// file is always saved, even when text extraction yields nothing), a texts map
+// of filename -> extracted text for the documents that produced text (so the
+// Manager can thread it straight to the Zone-2 agents without re-reading GCS),
+// and an agent.Result describing the outcome:
 //
 //   - success     — every attachment was fetched and produced text (or there were
 //     no attachments to ingest).
@@ -76,42 +82,47 @@ func New(f Fetcher, s ObjectStore, e Extractor) *Agent {
 // Ingest returns a Go error only for invalid input (nil opportunity) or an
 // ObjectStore failure it cannot recover from; per-attachment problems are carried
 // as result flags so the Manager can route the run without crashing the pipeline.
-func (a *Agent) Ingest(ctx context.Context, opp *opportunity.Opportunity) ([]opportunity.SolicitationDoc, *agent.Result, error) {
+func (a *Agent) Ingest(ctx context.Context, opp *opportunity.Opportunity) ([]opportunity.SolicitationDoc, map[string]string, *agent.Result, error) {
 	if opp == nil {
-		return nil, nil, fmt.Errorf("ingest: opportunity must not be nil")
+		return nil, nil, nil, fmt.Errorf("ingest: opportunity must not be nil")
 	}
 
 	var (
 		docs   []opportunity.SolicitationDoc
 		issues []string
 	)
+	texts := make(map[string]string)
 
 	for i, url := range opp.Attachments {
-		doc, issue, err := a.ingestOne(ctx, opp.ID, i, url)
+		doc, text, issue, err := a.ingestOne(ctx, opp.ID, i, url)
 		if err != nil {
 			// An ObjectStore failure is not recoverable per-document; surface it.
-			return nil, a.result(opp.ID, docs, append(issues, err.Error()), agent.StatusFailed), err
+			return nil, nil, a.result(opp.ID, docs, append(issues, err.Error()), agent.StatusFailed), err
 		}
 		if issue != "" {
 			issues = append(issues, issue)
 		}
 		if doc != nil {
 			docs = append(docs, *doc)
+			if text != "" {
+				texts[doc.Filename] = text
+			}
 		}
 	}
 
 	status := a.classify(len(opp.Attachments), len(docs), len(issues))
 	res := a.result(opp.ID, docs, issues, status)
-	return docs, res, nil
+	return docs, texts, res, nil
 }
 
 // ingestOne handles a single attachment. It returns the recorded doc (nil if the
-// attachment could not be fetched), a non-empty issue string when something needs
-// human attention, and a Go error only for an unrecoverable ObjectStore failure.
-func (a *Agent) ingestOne(ctx context.Context, noticeID string, idx int, url string) (*opportunity.SolicitationDoc, string, error) {
+// attachment could not be fetched), the extracted text (empty when none), a
+// non-empty issue string when something needs human attention, and a Go error
+// only for an unrecoverable ObjectStore failure.
+func (a *Agent) ingestOne(ctx context.Context, noticeID string, idx int, url string) (doc *opportunity.SolicitationDoc, text, issue string, err error) {
 	raw, contentType, filename, err := a.fetcher.Fetch(ctx, url)
 	if err != nil {
-		return nil, fmt.Sprintf("[fetch] %s: %v", url, err), nil
+		return nil, "", fmt.Sprintf("[fetch] %s: %v", url, err), nil
 	}
 
 	filename = safeFilename(filename, idx)
@@ -119,7 +130,7 @@ func (a *Agent) ingestOne(ctx context.Context, noticeID string, idx int, url str
 	rawObject := path.Join(noticeID, "raw", filename)
 	textObject := path.Join(noticeID, "text", filename+".txt")
 
-	doc := opportunity.SolicitationDoc{
+	rec := opportunity.SolicitationDoc{
 		Filename:    filename,
 		SourceURL:   url,
 		ContentType: contentType,
@@ -129,37 +140,67 @@ func (a *Agent) ingestOne(ctx context.Context, noticeID string, idx int, url str
 	}
 
 	// Idempotency: if the raw object already exists with the same checksum, the
-	// document is unchanged — reuse the stored objects without re-uploading.
-	if existing, ok, statErr := a.store.Stat(ctx, rawObject); statErr != nil {
-		return nil, "", fmt.Errorf("ingest: stat %s: %w", rawObject, statErr)
-	} else if ok && existing == sum {
-		doc.RawObject = a.store.URI(rawObject)
-		doc.TextObject = a.store.URI(textObject)
-		return &doc, "", nil
+	// document is unchanged — reuse the stored objects and load the already
+	// extracted text back from GCS rather than re-running (metered) extraction.
+	existing, ok, statErr := a.store.Stat(ctx, rawObject)
+	if statErr != nil {
+		return nil, "", "", fmt.Errorf("ingest: stat %s: %w", rawObject, statErr)
+	}
+	if ok && existing == sum {
+		rec.RawObject = a.store.URI(rawObject)
+		stored, hasText, rerr := a.readStoredText(ctx, textObject)
+		if rerr != nil {
+			return nil, "", "", rerr
+		}
+		if hasText {
+			rec.TextObject = a.store.URI(textObject)
+			return &rec, stored, "", nil
+		}
+		// Unchanged, but it had no extractable text before — still flag it so a
+		// human sees the gap on every run, not just the first.
+		return &rec, "", fmt.Sprintf("[no_text] %s: no extractable text (scanned or empty)", filename), nil
 	}
 
 	rawURI, err := a.store.Put(ctx, rawObject, raw, contentType, sum)
 	if err != nil {
-		return nil, "", fmt.Errorf("ingest: put raw %s: %w", rawObject, err)
+		return nil, "", "", fmt.Errorf("ingest: put raw %s: %w", rawObject, err)
 	}
-	doc.RawObject = rawURI
+	rec.RawObject = rawURI
 
 	// Extract text. Empty (not error) means no embedded text — keep the raw file
 	// for re-download, leave TextObject empty, and flag for a human. Never invent.
-	text, err := a.extract.ExtractText(ctx, raw, contentType)
+	extracted, err := a.extract.ExtractText(ctx, raw, contentType)
 	if err != nil {
-		return &doc, fmt.Sprintf("[extract] %s: %v", filename, err), nil
+		return &rec, "", fmt.Sprintf("[extract] %s: %v", filename, err), nil
 	}
-	if strings.TrimSpace(text) == "" {
-		return &doc, fmt.Sprintf("[no_text] %s: no extractable text (scanned or empty)", filename), nil
+	if strings.TrimSpace(extracted) == "" {
+		return &rec, "", fmt.Sprintf("[no_text] %s: no extractable text (scanned or empty)", filename), nil
 	}
 
-	textURI, err := a.store.Put(ctx, textObject, []byte(text), textContentType, sha256Hex([]byte(text)))
+	textURI, err := a.store.Put(ctx, textObject, []byte(extracted), textContentType, sha256Hex([]byte(extracted)))
 	if err != nil {
-		return nil, "", fmt.Errorf("ingest: put text %s: %w", textObject, err)
+		return nil, "", "", fmt.Errorf("ingest: put text %s: %w", textObject, err)
 	}
-	doc.TextObject = textURI
-	return &doc, "", nil
+	rec.TextObject = textURI
+	return &rec, extracted, "", nil
+}
+
+// readStoredText loads the extracted text previously stored at textObject, if it
+// exists. It returns ("", false, nil) when no text object is present (e.g. the
+// document was unextractable on the first ingest).
+func (a *Agent) readStoredText(ctx context.Context, textObject string) (text string, found bool, err error) {
+	_, ok, err := a.store.Stat(ctx, textObject)
+	if err != nil {
+		return "", false, fmt.Errorf("ingest: stat %s: %w", textObject, err)
+	}
+	if !ok {
+		return "", false, nil
+	}
+	b, err := a.store.Read(ctx, textObject)
+	if err != nil {
+		return "", false, fmt.Errorf("ingest: read %s: %w", textObject, err)
+	}
+	return string(b), true, nil
 }
 
 // classify maps the per-run counts onto a terminal status.
