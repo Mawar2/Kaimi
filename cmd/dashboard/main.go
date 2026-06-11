@@ -127,7 +127,7 @@ func newProposalService(s store.Store, basePath string, liveWriter, liveReview, 
 		if err != nil {
 			return nil, fmt.Errorf("gcs store: %w", err)
 		}
-		docAI, _, err := ingest.NewDocumentAIExtractor(ctx, projectID, envOr("DOCUMENTAI_LOCATION", "us"), processorID)
+		docAI, _, err := ingest.NewDocumentAIExtractor(ctx, projectID, envOr("DOCUMENTAI_LOCATION", "us"), processorID, bucket)
 		if err != nil {
 			return nil, fmt.Errorf("document ai extractor: %w", err)
 		}

@@ -17,6 +17,24 @@ func isDOCX(contentType string) bool {
 	return strings.Contains(strings.ToLower(contentType), "wordprocessingml.document")
 }
 
+// looksLikeDOCX reports whether raw is structurally a .docx (a ZIP containing
+// word/document.xml). It exists for the case where the served content type is
+// generic (application/octet-stream) and cannot be trusted — a real bug seen on
+// the live ingest path (issue #194), where a .docx attachment arrived as
+// octet-stream and was misrouted to the OCR extractor.
+func looksLikeDOCX(raw []byte) bool {
+	zr, err := zip.NewReader(bytes.NewReader(raw), int64(len(raw)))
+	if err != nil {
+		return false
+	}
+	for _, f := range zr.File {
+		if f.Name == "word/document.xml" {
+			return true
+		}
+	}
+	return false
+}
+
 // extractDOCX returns the plain text of a .docx file using only the standard
 // library: a .docx is a ZIP archive whose word/document.xml holds the body as
 // WordprocessingML. We stream that XML and emit the text runs (<w:t>), inserting
