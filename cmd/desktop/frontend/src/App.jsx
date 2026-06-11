@@ -88,7 +88,10 @@ export default function DesktopApp(){
   const [proposals, setProposals] = useState(isLive() ? [] : KAIMI_PROPOSALS);
   const [wsView, setWsView] = useState(null);
   const [toast, setToast] = useState("");
-  const [opps, setOpps] = useState(KAIMI_OPPS);
+  /* Live mode starts empty and fills from the real store; the bundled demo
+     queue is for plain-browser dev only (issue #258 — no demo data on the
+     live run path, mirroring the proposals state above). */
+  const [opps, setOpps] = useState(isLive() ? [] : KAIMI_OPPS);
   const [filter, setFilter] = useState("all");
   const [drawerOpp, setDrawerOpp] = useState(null);
   const [pursued, setPursued] = useState(()=> new Set());
@@ -140,9 +143,14 @@ export default function DesktopApp(){
     id:"live-"+p.id, title:p.title, agency:p.agency, sol:p.sol||"—", fit:p.fit,
     value:p.value||"—", valueNum:p.valueNum||0, submitted:"Just now", status:"pending",
     award:"Confirmation logged · Kaimi is watching for amendments", isNew:true,
-    docs:[ {name:"technical-volume-final.docx", meta:"18 pp"}, {name:"compliance-matrix.xlsx", meta:"24 reqs"}, {name:"solicitation-"+(p.sol||"")+".pdf", meta:"SAM.gov"} ],
+    /* Live submissions list only the artifact Kaimi actually produced; the
+       richer demo doc chips belong to browser-dev mode (issue #258). */
+    docs: isLive() ? [ {name:"draft.md", meta:"Kaimi draft"} ]
+                   : [ {name:"technical-volume-final.docx", meta:"18 pp"}, {name:"compliance-matrix.xlsx", meta:"24 reqs"}, {name:"solicitation-"+(p.sol||"")+".pdf", meta:"SAM.gov"} ],
   }));
-  const submittedAll = [...liveSubmitted, ...KAIMI_SUBMITTED];
+  /* Live mode shows only real submissions; the demo archive is browser-dev
+     furniture (issue #258 — a judge must never see fabricated awards). */
+  const submittedAll = isLive() ? liveSubmitted : [...liveSubmitted, ...KAIMI_SUBMITTED];
 
   /* ---- network toggle: reconnecting processes the queue (mock-only sim) ---- */
   const toggleNet = ()=>{
