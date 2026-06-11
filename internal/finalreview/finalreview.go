@@ -166,23 +166,36 @@ func checkGaps(draft string) []string {
 			section = strings.TrimSpace(heading)
 			continue
 		}
+		for _, gapText := range GapTexts(line) {
+			issues = append(issues, gapIssue(section, gapText))
+		}
+	}
+	return issues
+}
+
+// GapTexts returns the missing-fact text of every Writer gap marker in text,
+// in order of appearance. checkGaps uses it line by line to attribute gaps to
+// section headings; the dashboard uses it to call out gaps inside a section
+// body. A marker the model left unclosed still counts, using the rest of its
+// line as the text.
+func GapTexts(text string) []string {
+	var gaps []string
+	for _, line := range strings.Split(text, "\n") {
 		rest := line
 		for {
 			_, after, found := strings.Cut(rest, gapMarker)
 			if !found {
 				break
 			}
-			// The gap text runs to the marker's closing bracket; a marker the
-			// model left unclosed still flags, using the rest of the line.
 			gapText, remainder, closed := strings.Cut(after, "]")
 			if !closed {
 				remainder = ""
 			}
-			issues = append(issues, gapIssue(section, strings.TrimSpace(gapText)))
+			gaps = append(gaps, strings.TrimSpace(gapText))
 			rest = remainder
 		}
 	}
-	return issues
+	return gaps
 }
 
 // gapIssuePrefix opens every unresolved-gap issue string. gapIssue and
