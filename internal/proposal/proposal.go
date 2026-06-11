@@ -230,6 +230,21 @@ func (s *Service) Submit(ctx context.Context, oppID string) error {
 	return s.setStatus(ctx, oppID, StatusSubmitted)
 }
 
+// SubmitDemo marks a selected proposal submitted from any in-progress state. It
+// exists only for demos (the "Demo mode" toggle / "Save to Google Drive" action)
+// so a presenter can show the full lifecycle without waiting for the Final
+// Review. Production submit (Submit) still requires the ready-to-submit gate.
+func (s *Service) SubmitDemo(ctx context.Context, oppID string) error {
+	opp, err := s.deps.Opportunities.Get(ctx, oppID)
+	if err != nil {
+		return err
+	}
+	if !opp.Selected {
+		return fmt.Errorf("opportunity %s is not in your proposals", oppID)
+	}
+	return s.setStatus(ctx, oppID, StatusSubmitted)
+}
+
 // atGate reports whether the proposal is paused for the human.
 func atGate(status string) bool {
 	return status == StatusGate || status == StatusReviewNeedsHuman

@@ -345,7 +345,14 @@ func (h *Handler) handleAction(action string) http.HandlerFunc {
 		case "changes":
 			err = h.proposals.RequestChanges(r.Context(), id, r.FormValue("note"))
 		case "submit":
-			err = h.proposals.Submit(r.Context(), id)
+			// Demo mode (the "Save to Google Drive" toggle) saves the package from
+			// any state, skipping the ready-to-submit gate; production submit is
+			// unchanged.
+			if r.FormValue("demo") == "1" {
+				err = h.proposals.SubmitDemo(r.Context(), id)
+			} else {
+				err = h.proposals.Submit(r.Context(), id)
+			}
 		}
 		if err != nil {
 			http.Error(w, err.Error(), http.StatusConflict)
