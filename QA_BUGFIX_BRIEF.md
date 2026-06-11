@@ -82,7 +82,7 @@ card state matches the workspace at each step. Re-check `:8907`/`:8913` parity (
 ## PROGRESS (loop updates this every iteration)
 - [x] Tracking GitHub issue created with AC — Mawar2/Kaimi#246
 - [x] B1 workspace sidebar counts — fixed + test + verified (commit 7107c71)
-- [ ] B2 cross-view state drift — fixed + test + verified
+- [x] B2 cross-view state drift — fixed + test + verified (commit 64a278a)
 - [ ] B3 draft.md/document.json artifacts — fixed + verified
 - [ ] B4 gate-action feedback + real redraft/review — fixed + verified
 - [ ] B6 criteria false-negative (keyword match + honest copy) — fixed + test + verified
@@ -93,3 +93,4 @@ card state matches the workspace at each step. Re-check `:8907`/`:8913` parity (
 ### Iteration log
 (append: date — what changed — commit — verify result)
 - 2026-06-11 — B1: extracted `fillShellCounts`, wired handleWorkspace + handleDetail. TDD red→green (TestWorkspaceSidebarShowsCounts). Full dashboard pkg green, gofmt/vet clean. Live verify on :8930: workspace sidebar now Opportunities 5 / Proposals 1, matching `/` and `/proposals` (was 0/0). commit 7107c71. Screenshot B1-workspace-sidebar-fixed.png.
+- 2026-06-11 — B2: added `ProposalStatus` to OpportunityRow, list now uses `proposalView(row.ProposalStatus)` (same as workspace), removed lossy `rowStatus`. TDD red→green (TestListAndWorkspaceAgreeOnState). Full pkg green, gofmt/vet clean. Live verify on :8930: an outline:failed proposal shows "Needs attention · Outline hit a problem" in BOTH list and workspace; contradiction strings ("Agents working"/"Tomás drafting now") absent. commit 64a278a. Screenshot B2-proposals-failed-consistent.png.
