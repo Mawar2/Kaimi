@@ -71,21 +71,52 @@ type Criterion struct {
 }
 
 // DeriveCriteria checks each requirement against the draft (which must already be
-// lowercased) using RequirementAddressed. An unconfirmed item carries honest copy
-// — it is never asserted missing (issue #246 B6). Returns nil for no requirements.
-func DeriveCriteria(requirements []string, draftLower string) []Criterion {
+// lowercased) and the Final Review's open flags. The open flags are
+// authoritative: a must-have the review flagged as not addressed shows red here
+// too, so the gate's criteria grid can never contradict the review's findings
+// (tester-reported follow-up to #246 B6 — the lenient term-overlap matcher was
+// showing green for must-haves the review flagged as not addressed). When a
+// requirement is not flagged, the matcher provides the pre-review signal and an
+// unconfirmed item carries honest copy. openFlags are the texts of the
+// document's unresolved flags. Returns nil for no requirements.
+func DeriveCriteria(requirements []string, draftLower string, openFlags []string) []Criterion {
 	if len(requirements) == 0 {
 		return nil
 	}
+	flagsLower := make([]string, len(openFlags))
+	for i, f := range openFlags {
+		flagsLower[i] = strings.ToLower(f)
+	}
 	items := make([]Criterion, 0, len(requirements))
 	for _, req := range requirements {
-		c := Criterion{Label: req, OK: RequirementAddressed(draftLower, req)}
-		if !c.OK {
-			c.Note = "Kaimi could not auto-confirm this — verify in the draft"
+		c := Criterion{Label: req}
+		if flaggedAsUnaddressed(flagsLower, strings.ToLower(req)) {
+			c.OK = false
+			c.Note = "Final review flagged this as not yet addressed in the draft"
+		} else {
+			c.OK = RequirementAddressed(draftLower, req)
+			if !c.OK {
+				c.Note = "Kaimi could not auto-confirm this — verify in the draft"
+			}
 		}
 		items = append(items, c)
 	}
 	return items
+}
+
+// flaggedAsUnaddressed reports whether any open Final Review flag names the
+// requirement. The deterministic must_have flag embeds the requirement text
+// verbatim, so a substring match is sufficient.
+func flaggedAsUnaddressed(flagsLower []string, reqLower string) bool {
+	if reqLower == "" {
+		return false
+	}
+	for _, f := range flagsLower {
+		if strings.Contains(f, reqLower) {
+			return true
+		}
+	}
+	return false
 }
 
 // requirementStopwords are common words dropped before term matching so the
