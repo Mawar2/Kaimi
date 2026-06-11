@@ -11,6 +11,7 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
+	"strconv"
 	"syscall"
 	"time"
 
@@ -156,13 +157,22 @@ func envOr(key, fallback string) string {
 }
 
 func run() error {
-	port := flag.Int("port", 8900, "Port to serve on")
+	port := flag.Int("port", 8900, "Port to serve on (honors $PORT when set, e.g. Cloud Run)")
+	host := flag.String("host", envOr("HOST", "127.0.0.1"), "Interface to bind; use 0.0.0.0 in containers/Cloud Run")
 	storePath := flag.String("store", "", "Path to the JSON store directory")
 	liveWriter := flag.Bool("live-writer", false, "Draft with the real Gemini writer (Vertex AI ADC; needs GCP_PROJECT_ID)")
 	liveReview := flag.Bool("live-review", false, "Run the Gemini compliance pass in Final Review (Vertex AI ADC; needs GCP_PROJECT_ID)")
 	liveIngest := flag.Bool("live-ingest", false, "Ingest solicitation documents (GCS + Document AI; needs GCP_PROJECT_ID, GCS_SOLICITATIONS_BUCKET, DOCUMENTAI_PROCESSOR_ID)")
 	profilePath := flag.String("profile", "config/bluemeta_scorer_profile.json", "Capability profile JSON for grounding the writer (BlueMeta's real profile by default)")
 	flag.Parse()
+
+	// Cloud Run (and most container platforms) inject the listen port via $PORT.
+	// Honor it over the flag default so the same binary works locally and hosted.
+	if p := envOr("PORT", ""); p != "" {
+		if n, err := strconv.Atoi(p); err == nil {
+			*port = n
+		}
+	}
 
 	if *storePath == "" {
 		return fmt.Errorf("--store path is required")
@@ -180,7 +190,7 @@ func run() error {
 
 	mux := newMux(dashboard.NewHandler(dashboard.NewService(s), dashboard.WithProposals(proposals)))
 
-	addr := net.JoinHostPort("127.0.0.1", fmt.Sprintf("%d", *port))
+	addr := net.JoinHostPort(*host, fmt.Sprintf("%d", *port))
 	httpSrv := &http.Server{
 		Addr:              addr,
 		Handler:           mux,
