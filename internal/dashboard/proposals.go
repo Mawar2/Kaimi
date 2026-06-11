@@ -210,7 +210,9 @@ func (h *Handler) handleProposals(w http.ResponseWriter, r *http.Request) {
 		if row.Stage == StageHunted || row.Stage == StageScored {
 			continue
 		}
-		stageIndex, state := proposalView(rowStatus(row))
+		// Derive the card state from the SAME raw status the workspace uses,
+		// so the two views can never disagree (issue #246 B2).
+		stageIndex, state := proposalView(row.ProposalStatus)
 		card := PropCard{
 			ID:         row.ID,
 			Title:      row.Title,
@@ -251,23 +253,6 @@ func (h *Handler) handleProposals(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	if err := h.proposalsTmpl.Execute(w, data); err != nil {
 		fmt.Printf("proposals template execution failed: %v\n", err)
-	}
-}
-
-// rowStatus recovers the raw ProposalStatus for a list row via its stage:
-// the list view-model doesn't carry the raw status, so re-read it.
-func rowStatus(row *OpportunityRow) string {
-	switch row.Stage {
-	case StageSubmitted:
-		return proposal.StatusSubmitted
-	case StageFinalized:
-		return proposal.StatusReadyToSubmit
-	case StageAwaitingHumanReview:
-		return proposal.StatusGate
-	case StageSelected:
-		return proposal.StatusOutlineRunning
-	default:
-		return proposal.StatusWriterRunning
 	}
 }
 

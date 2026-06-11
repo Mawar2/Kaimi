@@ -232,6 +232,63 @@ func TestProposalCardsResetLinkStyling(t *testing.T) {
 	}
 }
 
+// TestListAndWorkspaceAgreeOnState proves the proposals list and the workspace
+// derive proposal state from the SAME source of truth — the raw ProposalStatus
+// — so they can't contradict each other (issue #246 B2). The bug: the list ran
+// the status through DeriveStage→rowStatus, a lossy round-trip that collapsed
+// outline-running, final-review, and ALL failures into "writer:in_progress", so
+// a proposal that had failed at Outline showed "Tomás drafting now / Agents
+// working" in the list while the workspace correctly showed "Outline hit a
+// problem".
+func TestListAndWorkspaceAgreeOnState(t *testing.T) {
+	dir := t.TempDir()
+	opps, err := store.NewJSONStore(dir)
+	if err != nil {
+		t.Fatalf("store: %v", err)
+	}
+	now := time.Now()
+	opp := &opportunity.Opportunity{
+		ID: "fail-1", Title: "Failed At Outline", Agency: "GSA",
+		Selected: true, SelectedAt: &now, ProposalStatus: "outline:failed",
+		ResponseDeadline: now.Add(20 * 24 * time.Hour),
+		ScoredAt:         &now, CreatedAt: now, UpdatedAt: now,
+	}
+	if err := opps.Save(context.Background(), opp); err != nil {
+		t.Fatalf("seed: %v", err)
+	}
+
+	docs, err := document.NewStore(dir)
+	if err != nil {
+		t.Fatalf("docs: %v", err)
+	}
+	docsClient, err := googledocs.NewClient(context.Background(), googledocs.Config{UseCached: true})
+	if err != nil {
+		t.Fatalf("docs client: %v", err)
+	}
+	svc := proposal.NewService(&proposal.Deps{
+		Opportunities: opps, Documents: docs,
+		Outline: outline.New(docsClient), Writer: writer.New(), Review: finalreview.New(),
+	})
+	h := dashboard.NewHandler(dashboard.NewService(opps), dashboard.WithProposals(svc))
+	h.Now = func() time.Time { return now }
+
+	list := get(t, h, "/proposals")
+	ws := get(t, h, "/workspace/fail-1")
+
+	// The workspace tells the truth: the outline stage failed.
+	if !contains(ws, "Outline hit a problem") {
+		t.Fatalf("workspace should show the outline failure")
+	}
+	// The list must agree — it must NOT claim the writer is happily working.
+	if contains(list, "Tomás drafting now") || contains(list, "Agents working") {
+		t.Errorf("proposals list contradicts the workspace: shows the writer working for an outline:failed proposal")
+	}
+	// And it should surface the failure under the needs-attention group.
+	if !contains(list, "Needs attention") {
+		t.Errorf("proposals list should surface the outline failure under Needs attention")
+	}
+}
+
 // TestProposalGuards covers method/id/state validation.
 func TestProposalGuards(t *testing.T) {
 	h, svc, _ := newProposalHandler(t)
