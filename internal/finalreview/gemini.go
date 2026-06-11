@@ -34,6 +34,33 @@ func NewGeminiComplianceChecker(ctx context.Context, projectID, location, modelN
 	return &GeminiComplianceChecker{client: client, modelName: modelName}, nil
 }
 
+// Output-budget sizing for a compliance check. Gemini thinking models (2.5-pro
+// and the 3.x family) bill internal reasoning against MaxOutputTokens, so the old
+// 4096 cap with no thinking budget could be consumed by reasoning and return an
+// empty verdict on 3.x — the same failure the scorer (#192) and Writer (#229) hit.
+// We raise the cap and bound the thinking budget so reasoning can never starve the
+// JSON verdict. The verdict is compact JSON, so it needs less room than the
+// Writer's prose.
+const (
+	maxComplianceOutputTokens = 8192
+	complianceThinkingBudget  = 2048
+)
+
+// complianceGenerateConfig builds the Gemini config for a compliance check, with
+// thinking-token headroom (see #192/#229) and JSON output so a 3.x model returns a
+// verdict rather than spending the whole budget on hidden reasoning.
+func complianceGenerateConfig(systemInstruction string) *genai.GenerateContentConfig {
+	temp := float32(0.1) // low temperature: deterministic, grounded compliance verdict
+	budget := int32(complianceThinkingBudget)
+	return &genai.GenerateContentConfig{
+		Temperature:       &temp,
+		MaxOutputTokens:   maxComplianceOutputTokens,
+		ResponseMIMEType:  "application/json",
+		SystemInstruction: genai.NewContentFromText(systemInstruction, genai.RoleUser),
+		ThinkingConfig:    &genai.ThinkingConfig{ThinkingBudget: &budget},
+	}
+}
+
 // CheckCompliance implements ComplianceChecker using Gemini via Vertex AI. It
 // requests JSON output and returns the raw response for the agent to parse.
 func (g *GeminiComplianceChecker) CheckCompliance(ctx context.Context, systemInstruction, prompt string) (string, error) {
@@ -41,14 +68,7 @@ func (g *GeminiComplianceChecker) CheckCompliance(ctx context.Context, systemIns
 		genai.NewContentFromText(prompt, genai.RoleUser),
 	}
 
-	temp := float32(0.1) // low temperature: deterministic, grounded compliance verdict
-	maxTokens := int32(4096)
-	config := &genai.GenerateContentConfig{
-		Temperature:       &temp,
-		MaxOutputTokens:   maxTokens,
-		ResponseMIMEType:  "application/json",
-		SystemInstruction: genai.NewContentFromText(systemInstruction, genai.RoleUser),
-	}
+	config := complianceGenerateConfig(systemInstruction)
 
 	resp, err := g.client.Models.GenerateContent(ctx, g.modelName, contents, config)
 	if err != nil {

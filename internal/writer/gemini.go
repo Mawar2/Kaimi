@@ -34,14 +34,16 @@ func NewGeminiGenerator(ctx context.Context, projectID, location, modelName stri
 	return &GeminiGenerator{client: client, modelName: modelName}, nil
 }
 
-// Output-budget sizing for a section draft. gemini-2.5-pro is a thinking model:
-// its reasoning tokens are billed against MaxOutputTokens, so the old 2048 cap
-// was consumed by thinking and the longest sections truncated mid-sentence (see
-// issue #192). We raise the cap and bound the thinking budget so reasoning can
-// never starve the prose. Values are generous, tunable headroom.
+// Output-budget sizing for a section draft. Gemini thinking models (2.5-pro and
+// the 3.x family) bill their internal reasoning against MaxOutputTokens, so a low
+// cap is consumed by thinking and the section comes back truncated or empty — the
+// 2048 cap did this on 2.5-pro (#192) and the bake-off (#229) confirmed 3.x is
+// even hungrier, returning empty drafts. Full proposal sections are long prose, so
+// we give them more room than the scorer's JSON: a 16K cap with a bounded thinking
+// budget that can never starve the output. Values are generous, tunable headroom.
 const (
-	maxSectionOutputTokens = 8192
-	sectionThinkingBudget  = 2048
+	maxSectionOutputTokens = 16384
+	sectionThinkingBudget  = 4096
 )
 
 // sectionGenerateConfig builds the Gemini config for one section draft, with
