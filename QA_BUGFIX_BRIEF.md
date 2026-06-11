@@ -69,7 +69,7 @@ card state matches the workspace at each step. Re-check `:8907`/`:8913` parity (
 
 ## PROGRESS (loop updates this every iteration)
 - [x] Tracking GitHub issue created with AC — Mawar2/Kaimi#246
-- [ ] B1 workspace sidebar counts — fixed + test + verified
+- [x] B1 workspace sidebar counts — fixed + test + verified (commit 7107c71)
 - [ ] B2 cross-view state drift — fixed + test + verified
 - [ ] B3 draft.md/document.json artifacts — fixed + verified
 - [ ] B4 gate-action feedback + real redraft/review — fixed + verified
@@ -79,3 +79,4 @@ card state matches the workspace at each step. Re-check `:8907`/`:8913` parity (
 
 ### Iteration log
 (append: date — what changed — commit — verify result)
+- 2026-06-11 — B1: extracted `fillShellCounts`, wired handleWorkspace + handleDetail. TDD red→green (TestWorkspaceSidebarShowsCounts). Full dashboard pkg green, gofmt/vet clean. Live verify on :8930: workspace sidebar now Opportunities 5 / Proposals 1, matching `/` and `/proposals` (was 0/0). commit 7107c71. Screenshot B1-workspace-sidebar-fixed.png.
