@@ -88,7 +88,7 @@ card state matches the workspace at each step. Re-check `:8907`/`:8913` parity (
 - [x] B6 criteria false-negative (keyword match + honest copy) — fixed + test + verified (commit 96c2250)
 - [→] B5 live/no-stub failover — DEFERRED to pr245 (Malik's call 2026-06-11): pr245 is already an open PR for this exact work and the live Zone-2 agents are mid-build; merging here would duplicate/tangle. Tracked separately.
 - [x] build + go test ./... (23 pkgs) green + golangci-lint 0 issues on internal/dashboard + gofmt clean. NOTE: cmd/desktop fails `all:frontend/dist` embed (pre-existing missing asset, not this branch).
-- [ ] PR opened for Malik to merge (references #246)
+- [x] PR opened for Malik to merge — Mawar2/Kaimi#247 (references #246)
 
 ### Iteration log
 (append: date — what changed — commit — verify result)
