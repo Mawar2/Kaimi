@@ -95,12 +95,22 @@ func newProposalService(s store.Store, basePath string, liveWriter, liveReview, 
 		// Outline plans the section structure with gemini-3.5-flash; the Writer
 		// persona "Thomas" drafts the prose with gemini-3.1-pro-preview while the
 		// Claude/Opus 4.8 Vertex quota is pending (swap GEMINI_MODEL when it lands).
+		// Like the Writer and Final Review, the Outline planner runs behind a
+		// real-model fallback chain (#266): Outline is the first agent every
+		// proposal hits, so one transient model error must not kill the chain.
+		outlineModel := envOr("OUTLINE_MODEL", "gemini-3.5-flash")
+		outlineBackupModel := envOr("OUTLINE_FALLBACK_MODEL", "gemini-2.5-pro")
 		planner, err := outline.NewGeminiSectionPlanner(context.Background(),
-			projectID, region, envOr("OUTLINE_MODEL", "gemini-3.5-flash"))
+			projectID, region, outlineModel)
 		if err != nil {
-			return nil, fmt.Errorf("gemini outline planner: %w", err)
+			return nil, fmt.Errorf("gemini outline planner (primary %s): %w", outlineModel, err)
 		}
-		ol = outline.NewWithPlanner(docsClient, planner)
+		backupPlanner, err := outline.NewGeminiSectionPlanner(context.Background(),
+			projectID, region, outlineBackupModel)
+		if err != nil {
+			return nil, fmt.Errorf("gemini outline planner (backup %s): %w", outlineBackupModel, err)
+		}
+		ol = outline.NewWithPlanner(docsClient, fallback.NewPlanner(planner, backupPlanner))
 
 		primaryModel := envOr("GEMINI_MODEL", "gemini-3.1-pro-preview")
 		backupModel := envOr("WRITER_FALLBACK_MODEL", "gemini-2.5-pro")
@@ -116,7 +126,7 @@ func newProposalService(s store.Store, basePath string, liveWriter, liveReview, 
 		// thinking model) errors or returns empty, the Writer fails over to the backup; if
 		// both fail it returns a failed status behind the human gate — never a fabricated stub.
 		w = writer.NewWithGenerator(fallback.NewGenerator(primary, backup))
-		log.Printf("Outline: LIVE gemini-3.5-flash planner; Technical Writer %q: LIVE drafting + fallback (project %s, primary %s, backup %s)", "Thomas", projectID, primaryModel, backupModel)
+		log.Printf("Outline: LIVE planner + fallback (primary %s, backup %s); Technical Writer %q: LIVE drafting + fallback (project %s, primary %s, backup %s)", outlineModel, outlineBackupModel, "Thomas", projectID, primaryModel, backupModel)
 	} else {
 		log.Printf("Outline + Technical Writer: OFFLINE stub mode (-offline) — live Gemini agents are the default")
 	}

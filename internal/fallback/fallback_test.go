@@ -6,6 +6,8 @@ import (
 	"testing"
 
 	"github.com/Mawar2/Kaimi/internal/fallback"
+	"github.com/Mawar2/Kaimi/internal/opportunity"
+	"github.com/Mawar2/Kaimi/internal/outline"
 )
 
 func init() {
@@ -95,6 +97,84 @@ func TestGenerator_AllFail_ReturnsLastError_NoStub(t *testing.T) {
 	out, err := g.GenerateSection(context.Background(), "sys", "prompt")
 	if out != "" {
 		t.Errorf("expected empty output when all options fail (no stub), got %q", out)
+	}
+	if err == nil || err.Error() != "backup down" {
+		t.Fatalf("want last error 'backup down', got %v", err)
+	}
+}
+
+// recordingPlanner implements outline.SectionPlanner, counting invocations and
+// optionally failing a number of times (transiently) before succeeding.
+type recordingPlanner struct {
+	sections   []outline.Section
+	err        error
+	failNTimes int
+	calls      int
+}
+
+func (r *recordingPlanner) PlanSections(_ context.Context, _ *opportunity.Opportunity, _ string) ([]outline.Section, error) {
+	r.calls++
+	if r.failNTimes > 0 {
+		r.failNTimes--
+		return nil, errors.New("429 rate limit") // transient
+	}
+	return r.sections, r.err
+}
+
+func TestPlanner_PrimarySucceeds_BackupUntouched(t *testing.T) {
+	primary := &recordingPlanner{sections: []outline.Section{{ID: "exec", Title: "Executive Summary"}}}
+	backup := &recordingPlanner{sections: []outline.Section{{ID: "other", Title: "Other"}}}
+	p := fallback.NewPlanner(primary, backup)
+
+	got, err := p.PlanSections(context.Background(), nil, "source")
+	if err != nil || len(got) != 1 || got[0].ID != "exec" {
+		t.Fatalf("got (%v, %v), want primary's sections", got, err)
+	}
+	if backup.calls != 0 {
+		t.Errorf("backup called %d times, want 0", backup.calls)
+	}
+}
+
+func TestPlanner_TransientThenRecovers_SameOption(t *testing.T) {
+	// Primary fails once transiently, then succeeds on retry — backup never used.
+	primary := &recordingPlanner{sections: []outline.Section{{ID: "exec", Title: "Executive Summary"}}, failNTimes: 1}
+	backup := &recordingPlanner{sections: []outline.Section{{ID: "other", Title: "Other"}}}
+	p := fallback.NewPlanner(primary, backup)
+
+	got, err := p.PlanSections(context.Background(), nil, "source")
+	if err != nil || len(got) != 1 || got[0].ID != "exec" {
+		t.Fatalf("got (%v, %v), want primary's sections after retry", got, err)
+	}
+	if primary.calls != 2 {
+		t.Errorf("primary called %d times, want 2 (1 transient fail + 1 success)", primary.calls)
+	}
+	if backup.calls != 0 {
+		t.Errorf("backup called %d times, want 0", backup.calls)
+	}
+}
+
+func TestPlanner_NonTransient_FailsOverImmediately(t *testing.T) {
+	primary := &recordingPlanner{err: errors.New("safety blocked")}
+	backup := &recordingPlanner{sections: []outline.Section{{ID: "other", Title: "Other"}}}
+	p := fallback.NewPlanner(primary, backup)
+
+	got, err := p.PlanSections(context.Background(), nil, "source")
+	if err != nil || len(got) != 1 || got[0].ID != "other" {
+		t.Fatalf("got (%v, %v), want backup's sections", got, err)
+	}
+	if primary.calls != 1 {
+		t.Errorf("primary called %d times, want 1 (no retry on non-transient)", primary.calls)
+	}
+}
+
+func TestPlanner_AllFail_ReturnsLastError_NoStub(t *testing.T) {
+	primary := &recordingPlanner{err: errors.New("primary down")}
+	backup := &recordingPlanner{err: errors.New("backup down")}
+	p := fallback.NewPlanner(primary, backup)
+
+	got, err := p.PlanSections(context.Background(), nil, "source")
+	if got != nil {
+		t.Errorf("expected nil sections when all options fail (no stub), got %v", got)
 	}
 	if err == nil || err.Error() != "backup down" {
 		t.Fatalf("want last error 'backup down', got %v", err)
