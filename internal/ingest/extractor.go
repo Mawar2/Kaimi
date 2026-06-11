@@ -22,15 +22,24 @@ func NewRoutingExtractor(primary Extractor) *RoutingExtractor {
 	return &RoutingExtractor{primary: primary}
 }
 
-// ExtractText routes by content type: DOCX to the stdlib extractor, all else to
-// the primary extractor. When the content type is generic (octet-stream/zip), it
-// also sniffs the bytes so a .docx served without its real MIME type still takes
-// the stdlib path instead of being misrouted to OCR (issue #194).
+// ExtractText routes by content type: the OOXML office formats (DOCX/PPTX/XLSX)
+// go to dependency-free stdlib extractors; everything else (PDFs, images, scans)
+// goes to the primary extractor (Document AI). When the content type is generic
+// (octet-stream/zip), it sniffs the bytes so an office file served without its
+// real MIME type still takes the stdlib path instead of being misrouted to OCR
+// (issue #194) — and so the OCR engine is never handed a format it cannot read.
 func (r *RoutingExtractor) ExtractText(ctx context.Context, raw []byte, contentType string) (string, error) {
-	if isDOCX(contentType) || (isGenericType(contentType) && looksLikeDOCX(raw)) {
+	generic := isGenericType(contentType)
+	switch {
+	case isDOCX(contentType) || (generic && looksLikeDOCX(raw)):
 		return extractDOCX(raw)
+	case isPPTX(contentType) || (generic && looksLikePPTX(raw)):
+		return extractPPTX(raw)
+	case isXLSX(contentType) || (generic && looksLikeXLSX(raw)):
+		return extractXLSX(raw)
+	default:
+		return r.primary.ExtractText(ctx, raw, contentType)
 	}
-	return r.primary.ExtractText(ctx, raw, contentType)
 }
 
 // isGenericType reports whether a content type is too generic to trust for

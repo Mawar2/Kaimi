@@ -91,3 +91,104 @@ func TestRoutingExtractor_TypedDOCX_UsesStdlib(t *testing.T) {
 		t.Errorf("got %q, want docx text", got)
 	}
 }
+
+// makePPTX builds a minimal .pptx: a zip with ppt/presentation.xml (for sniffing)
+// and two slides whose DrawingML carries one paragraph each.
+func makePPTX(t *testing.T, slide1, slide2 string) []byte {
+	t.Helper()
+	slide := func(body string) string {
+		return `<?xml version="1.0"?><p:sld xmlns:p="urn:p" xmlns:a="urn:a"><p:cSld><p:spTree>` +
+			`<a:p><a:r><a:t>` + body + `</a:t></a:r></a:p></p:spTree></p:cSld></p:sld>`
+	}
+	var buf bytes.Buffer
+	zw := zip.NewWriter(&buf)
+	files := map[string]string{
+		"ppt/presentation.xml":  `<?xml version="1.0"?><p:presentation xmlns:p="urn:p"/>`,
+		"ppt/slides/slide1.xml": slide(slide1),
+		"ppt/slides/slide2.xml": slide(slide2),
+	}
+	for name, body := range files {
+		w, err := zw.Create(name)
+		if err != nil {
+			t.Fatalf("zip create %s: %v", name, err)
+		}
+		if _, err := w.Write([]byte(body)); err != nil {
+			t.Fatalf("zip write %s: %v", name, err)
+		}
+	}
+	if err := zw.Close(); err != nil {
+		t.Fatalf("zip close: %v", err)
+	}
+	return buf.Bytes()
+}
+
+// makeXLSX builds a minimal .xlsx: a zip with xl/workbook.xml (for sniffing) and
+// xl/sharedStrings.xml holding the given strings as <si> items.
+func makeXLSX(t *testing.T, strs ...string) []byte {
+	t.Helper()
+	var ss strings.Builder
+	ss.WriteString(`<?xml version="1.0"?><sst xmlns="urn:x">`)
+	for _, s := range strs {
+		ss.WriteString(`<si><t>` + s + `</t></si>`)
+	}
+	ss.WriteString(`</sst>`)
+
+	var buf bytes.Buffer
+	zw := zip.NewWriter(&buf)
+	files := map[string]string{
+		"xl/workbook.xml":      `<?xml version="1.0"?><workbook xmlns="urn:w"/>`,
+		"xl/sharedStrings.xml": ss.String(),
+	}
+	for name, body := range files {
+		w, err := zw.Create(name)
+		if err != nil {
+			t.Fatalf("zip create %s: %v", name, err)
+		}
+		if _, err := w.Write([]byte(body)); err != nil {
+			t.Fatalf("zip write %s: %v", name, err)
+		}
+	}
+	if err := zw.Close(); err != nil {
+		t.Fatalf("zip close: %v", err)
+	}
+	return buf.Bytes()
+}
+
+// TestRoutingExtractor_PPTX covers the new stdlib PPTX path (#194 follow-up):
+// typed and octet-stream .pptx both extract slide text via stdlib, never OCR, in
+// slide order.
+func TestRoutingExtractor_PPTX(t *testing.T) {
+	raw := makePPTX(t, "Industry day overview", "Technical requirements")
+	for _, ct := range []string{pptxContentType, "application/octet-stream"} {
+		spy := &spyExtractor{}
+		got, err := NewRoutingExtractor(spy).ExtractText(context.Background(), raw, ct)
+		if err != nil {
+			t.Fatalf("ct=%s: unexpected error: %v", ct, err)
+		}
+		if spy.called {
+			t.Errorf("ct=%s: OCR primary must not run for a .pptx", ct)
+		}
+		if !strings.Contains(got, "Industry day overview") || !strings.Contains(got, "Technical requirements") {
+			t.Errorf("ct=%s: got %q, want both slides' text", ct, got)
+		}
+	}
+}
+
+// TestRoutingExtractor_XLSX covers the new stdlib XLSX path: typed and
+// octet-stream .xlsx both extract shared-string text via stdlib, never OCR.
+func TestRoutingExtractor_XLSX(t *testing.T) {
+	raw := makeXLSX(t, "Question: page limit?", "Answer: 30 pages")
+	for _, ct := range []string{xlsxContentType, "application/octet-stream"} {
+		spy := &spyExtractor{}
+		got, err := NewRoutingExtractor(spy).ExtractText(context.Background(), raw, ct)
+		if err != nil {
+			t.Fatalf("ct=%s: unexpected error: %v", ct, err)
+		}
+		if spy.called {
+			t.Errorf("ct=%s: OCR primary must not run for a .xlsx", ct)
+		}
+		if !strings.Contains(got, "page limit?") || !strings.Contains(got, "30 pages") {
+			t.Errorf("ct=%s: got %q, want shared-string text", ct, got)
+		}
+	}
+}
