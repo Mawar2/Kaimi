@@ -377,6 +377,9 @@ const workspaceContentTmpl = `{{define "content"}}
   .demo-toggle { display: inline-flex; align-items: center; gap: 6px; font: var(--t-small); color: var(--ink-3); cursor: pointer; user-select: none; margin: 16px 0 0; }
   .demo-toggle input { accent-color: var(--primary, #2563EB); width: 15px; height: 15px; }
   .demo-submit { display: flex; align-items: center; gap: 16px; justify-content: space-between; flex-wrap: wrap; margin-top: 12px; padding: 16px 18px; border-radius: var(--r-md); border: 1px solid color-mix(in oklab, var(--st-done) 30%, transparent); background: linear-gradient(180deg, var(--st-done-bg), var(--surface) 70%); }
+  /* The [hidden] attribute must win over the display rules above so the demo
+     toggle can actually swap the actions for the submit panel. */
+  .demo-submit[hidden], .r-actions[hidden] { display: none; }
   .demo-submit b { font: 650 14px/1.3 var(--font-sans); color: var(--ink); }
   .demo-submit p { font-size: 13px; color: var(--ink-soft); margin: 4px 0 0; line-height: 1.5; max-width: 52ch; }
   .draft-body { white-space: pre-wrap; background: var(--surface); border: 1px solid var(--border); border-radius: var(--r-md); padding: 12px 14px; font: var(--t-body); color: var(--ink); }
