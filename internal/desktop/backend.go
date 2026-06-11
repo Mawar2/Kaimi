@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 	"time"
 
 	"github.com/Mawar2/Kaimi/internal/dashboard"
@@ -216,6 +217,93 @@ func (b *Backend) ListProposals(ctx context.Context) (ProposalsResult, error) {
 		}
 	}
 	res.Empty = len(res.Cards) == 0
+	return res, nil
+}
+
+// WorkspaceSection is one editable draft section in the workspace view-model.
+type WorkspaceSection struct {
+	ID      string `json:"id"`
+	Heading string `json:"heading"`
+	Body    string `json:"body"`
+	Status  string `json:"status"`
+}
+
+// WorkspaceFlag is one open issue flagged on the draft (e.g. by Final Review).
+type WorkspaceFlag struct {
+	Title  string `json:"title"`
+	Detail string `json:"detail"`
+}
+
+// WorkspaceResult is the single-proposal workspace view-model. Stage/state and
+// criteria are derived from internal/zone2view — the same source the web uses —
+// so the desktop and web workspaces cannot disagree (issues #246 B2/B6, #249).
+type WorkspaceResult struct {
+	ID         string                `json:"id"`
+	Title      string                `json:"title"`
+	Agency     string                `json:"agency"`
+	ScorePct   int                   `json:"scorePct"`
+	Deadline   time.Time             `json:"deadline"`
+	StageIndex int                   `json:"stageIndex"`
+	State      string                `json:"state"`
+	Phrase     string                `json:"phrase"`
+	AtGate     bool                  `json:"atGate"`
+	Version    int                   `json:"version"`
+	LastEditor string                `json:"lastEditor"` // raw actor: "human"/"writer"/...; UI maps to a name
+	HasDraft   bool                  `json:"hasDraft"`
+	Sections   []WorkspaceSection    `json:"sections"`
+	Criteria   []zone2view.Criterion `json:"criteria"`
+	OpenFlags  []WorkspaceFlag       `json:"openFlags"`
+}
+
+// Workspace returns the single-proposal view-model for a pursued opportunity:
+// gate state, the working draft's sections, the criteria grid (derived via the
+// shared matcher), and any open flags. It errors for an unknown or not-yet-
+// selected opportunity, or when proposals are disabled.
+func (b *Backend) Workspace(ctx context.Context, oppID string) (WorkspaceResult, error) {
+	if b.proposals == nil {
+		return WorkspaceResult{}, errProposalsDisabled
+	}
+	opp, err := b.svc.Get(ctx, oppID)
+	if err != nil {
+		return WorkspaceResult{}, fmt.Errorf("workspace %s: %w", oppID, err)
+	}
+	if !opp.Selected {
+		return WorkspaceResult{}, fmt.Errorf("opportunity %s is not in your proposals", oppID)
+	}
+
+	stageIndex, state := zone2view.View(opp.ProposalStatus)
+	res := WorkspaceResult{
+		ID:         opp.ID,
+		Title:      opp.Title,
+		Agency:     opp.Agency,
+		Deadline:   opp.ResponseDeadline,
+		StageIndex: stageIndex,
+		State:      state,
+		Phrase:     zone2view.StatusPhrase(stageIndex, state),
+		AtGate:     state == "human",
+	}
+	if opp.Score > 0 {
+		res.ScorePct = int(0.5 + opp.Score*100)
+	}
+
+	if doc, err := b.proposals.Document(oppID); err == nil {
+		res.HasDraft = true
+		res.Version = doc.Version
+		if n := len(doc.Revisions); n > 0 {
+			res.LastEditor = doc.Revisions[n-1].Actor
+		}
+		for _, s := range doc.Sections {
+			res.Sections = append(res.Sections, WorkspaceSection{
+				ID: s.ID, Heading: s.Heading, Body: s.Body, Status: s.Status,
+			})
+		}
+		res.Criteria = zone2view.DeriveCriteria(opp.Requirements, strings.ToLower(doc.Markdown()))
+		for _, f := range doc.Flags {
+			if !f.Resolved {
+				res.OpenFlags = append(res.OpenFlags, WorkspaceFlag{Title: f.Title, Detail: f.Detail})
+			}
+		}
+	}
 	return res, nil
 }
 

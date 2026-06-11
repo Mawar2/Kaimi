@@ -200,6 +200,71 @@ func TestRequestChangesReturnsToGate(t *testing.T) {
 	}
 }
 
+// TestWorkspaceViewModel proves the desktop workspace view-model matches the web
+// (issue #249): gate state + sections + criteria all derived from the shared
+// zone2view, so a must-have addressed in different words reads as met (B6).
+func TestWorkspaceViewModel(t *testing.T) {
+	dir := t.TempDir()
+	now := time.Now()
+	seedStore(t, dir, &opportunity.Opportunity{
+		ID: "zta-1", Title: "Zero Trust", Agency: "DHS CISA",
+		Description:      "Modernize zero trust architecture.",
+		ResponseDeadline: now.Add(20 * 24 * time.Hour),
+		Score:            0.9, Recommendation: "BID",
+		Requirements: []string{"FedRAMP High authorization"},
+		ScoredAt:     &now, CreatedAt: now, UpdatedAt: now,
+	})
+	proposals := newStubProposals(t, dir)
+	b, _ := desktop.New(dir, desktop.WithProposals(proposals))
+	ctx := context.Background()
+	if err := b.Select(ctx, "zta-1"); err != nil {
+		t.Fatalf("Select: %v", err)
+	}
+	proposals.Wait()
+
+	// The human addresses the must-have in different words than the requirement.
+	doc, err := proposals.Document("zta-1")
+	if err != nil {
+		t.Fatalf("Document: %v", err)
+	}
+	if err := b.UpdateSection(ctx, "zta-1", doc.Sections[0].ID, "We deploy FedRAMP High authorized tooling."); err != nil {
+		t.Fatalf("UpdateSection: %v", err)
+	}
+
+	ws, err := b.Workspace(ctx, "zta-1")
+	if err != nil {
+		t.Fatalf("Workspace: %v", err)
+	}
+	if !ws.AtGate || ws.State != "human" {
+		t.Errorf("expected gate state, got state=%q atGate=%v", ws.State, ws.AtGate)
+	}
+	if ws.Title != "Zero Trust" || ws.ScorePct != 90 {
+		t.Errorf("unexpected header: title=%q scorePct=%d", ws.Title, ws.ScorePct)
+	}
+	if !ws.HasDraft || len(ws.Sections) == 0 {
+		t.Errorf("expected a draft with sections, got hasDraft=%v sections=%d", ws.HasDraft, len(ws.Sections))
+	}
+	if len(ws.Criteria) != 1 {
+		t.Fatalf("want 1 criterion, got %d", len(ws.Criteria))
+	}
+	if !ws.Criteria[0].OK {
+		t.Errorf("paraphrased must-have should read as met (B6 parity), got %+v", ws.Criteria[0])
+	}
+}
+
+// TestWorkspaceRejectsUnselected returns an error for an opportunity that has
+// not been pursued into Zone 2.
+func TestWorkspaceRejectsUnselected(t *testing.T) {
+	dir := t.TempDir()
+	now := time.Now()
+	seedStore(t, dir, &opportunity.Opportunity{ID: "opp-1", Title: "Unselected", ScoredAt: &now})
+	proposals := newStubProposals(t, dir)
+	b, _ := desktop.New(dir, desktop.WithProposals(proposals))
+	if _, err := b.Workspace(context.Background(), "opp-1"); err == nil {
+		t.Errorf("Workspace for an unselected opportunity should error")
+	}
+}
+
 // TestProposalActionsRequireService keeps a read-only backend valid: the
 // mutating methods report a clear error rather than panicking when no proposal
 // service is wired.
