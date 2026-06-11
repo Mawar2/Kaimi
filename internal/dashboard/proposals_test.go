@@ -317,6 +317,72 @@ func TestListAndWorkspaceAgreeOnState(t *testing.T) {
 	}
 }
 
+// TestDraftDownloadArtifact proves the gate surfaces the working draft as a
+// real, downloadable artifact rather than dead "draft.md"/"document.json" labels
+// (issue #246 B3): the workspace links draft.md to a download endpoint that
+// serves the Markdown, and the internal document.json is no longer shown.
+func TestDraftDownloadArtifact(t *testing.T) {
+	dir := t.TempDir()
+	opps, err := store.NewJSONStore(dir)
+	if err != nil {
+		t.Fatalf("store: %v", err)
+	}
+	docs, err := document.NewStore(dir)
+	if err != nil {
+		t.Fatalf("docs: %v", err)
+	}
+	docsClient, err := googledocs.NewClient(context.Background(), googledocs.Config{UseCached: true})
+	if err != nil {
+		t.Fatalf("docs client: %v", err)
+	}
+	svc := proposal.NewService(&proposal.Deps{
+		Opportunities: opps, Documents: docs,
+		Outline: outline.New(docsClient), Writer: writer.New(), Review: finalreview.New(),
+	})
+	now := time.Now()
+	opp := &opportunity.Opportunity{
+		ID: "dl-1", Title: "Download Opp", Agency: "GSA",
+		Selected: true, SelectedAt: &now, ProposalStatus: proposal.StatusGate,
+		ResponseDeadline: now.Add(20 * 24 * time.Hour), UpdatedAt: now,
+	}
+	if err := opps.Save(context.Background(), opp); err != nil {
+		t.Fatalf("seed opp: %v", err)
+	}
+	doc := &document.Document{
+		OpportunityID: "dl-1", Title: "Download Opp — Technical Volume",
+		Sections: []document.Section{
+			{ID: "approach", Heading: "Technical Approach",
+				Body: "Zero trust rollout details for download.", Status: "drafted"},
+		},
+	}
+	if err := docs.Create(doc, "writer", "draft"); err != nil {
+		t.Fatalf("create doc: %v", err)
+	}
+
+	h := dashboard.NewHandler(dashboard.NewService(opps), dashboard.WithProposals(svc))
+	h.Now = func() time.Time { return now }
+
+	body := get(t, h, "/workspace/dl-1")
+	if !contains(body, `href="/workspace/dl-1/draft.md"`) {
+		t.Errorf("gate should link draft.md to a real download endpoint")
+	}
+	if contains(body, "document.json") {
+		t.Errorf("the internal document.json must not be surfaced as an artifact")
+	}
+
+	rr := httptest.NewRecorder()
+	h.ServeHTTP(rr, httptest.NewRequest("GET", "/workspace/dl-1/draft.md", http.NoBody))
+	if rr.Code != http.StatusOK {
+		t.Fatalf("draft.md download: status %d, want 200", rr.Code)
+	}
+	if ct := rr.Header().Get("Content-Type"); !strings.HasPrefix(ct, "text/markdown") {
+		t.Errorf("draft.md content-type = %q, want text/markdown", ct)
+	}
+	if !contains(rr.Body.String(), "Zero trust rollout details for download.") {
+		t.Errorf("draft.md download should contain the drafted section body")
+	}
+}
+
 // TestGateCriteriaMatchesParaphrase renders the gate and proves the criteria
 // grid (issue #246 B6): a must-have the draft addresses in different words shows
 // as met, and a genuinely-absent one reads "could not auto-confirm" rather than
