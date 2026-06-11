@@ -79,7 +79,7 @@ phase, surface the architectural forks, don't guess.
 - [~] Phase 4 finish — editor.jsx wired to live sections + updateSection save (commit 010); submitted.jsx stays mock (cosmetic follow-up). vite build clean. ALL frontend live except submitted archive.
 - [~] Phase 5 QA — browser mock-fallback verified clean (no console errors, gate+download render). LIVE end-to-end needs a manual Wails smoke test by Malik (window.go only in the real app). SURFACED for his decision.
 - [x] build + go test + golangci-lint green — go build ./... OK; go test ./... 24 pkgs pass (cmd/desktop builds here, dist present); golangci-lint 0 issues on changed pkgs; gofmt clean.
-- [ ] PR opened for Malik to merge (references the issue + #246)
+- [x] PR opened for Malik to merge — Mawar2/Kaimi#250 (references #249). Targeted at main with explicit merge-ordering note (#247 → desktop-submitted-archive → this). Live Wails smoke test = human step before merge.
 
 ### Iteration log
 (append: date — what changed — commit — verify result)
