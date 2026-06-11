@@ -10,8 +10,41 @@ import { WorkspaceScreen } from './workspace.jsx';
 import { OnboardingFlow } from './onboarding.jsx';
 import { DraftEditor } from './editor.jsx';
 import { SubmittedScreen } from './submitted.jsx';
-import { KAIMI_PROPOSALS, KAIMI_OPPS, KAIMI_SUBMITTED } from './data.js';
-import { getOpportunities } from './api.js';
+import { KAIMI_PROPOSALS, KAIMI_OPPS, KAIMI_SUBMITTED, KAIMI_REVIEW } from './data.js';
+import {
+  getOpportunities, getProposals, getWorkspace,
+  pursue, approveProposal, requestChanges as apiRequestChanges, submitProposal, draftMarkdown,
+} from './api.js';
+
+// isLive reports whether the Wails backend bindings are present. Checked at call
+// time (not import time) since the runtime injects window.go before app code.
+const isLive = () => !!(window.go && window.go.main && window.go.main.App);
+
+// triggerDownload saves text as a file via a transient blob URL (B3: the working
+// draft is a real, openable artifact).
+function triggerDownload(name, text){
+  const blob = new Blob([text], { type: "text/markdown" });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url; a.download = name;
+  document.body.appendChild(a); a.click(); document.body.removeChild(a);
+  URL.revokeObjectURL(url);
+}
+
+// mockWs synthesizes the normalized workspace view from a demo proposal + the
+// bundled review mock, so the browser (no Wails) renders the same gate detail.
+function mockWs(p){
+  if(!p) return null;
+  return {
+    ...p,
+    sections: [],
+    criteria: KAIMI_REVIEW.criteria,
+    flags: [{ title: KAIMI_REVIEW.gap.title, detail: KAIMI_REVIEW.gap.detail }],
+    summary: KAIMI_REVIEW.summary,
+    artifacts: KAIMI_REVIEW.artifacts,
+    hasDraft: true,
+  };
+}
 
 function TitleBar({ online, onToggleNet, queuedCount, onboarded, onReplayOnboarding }){
   return (
@@ -52,7 +85,9 @@ export default function DesktopApp(){
   const [online, setOnline] = useState(true);
   const onlineRef = useRef(true);
   const [route, setRoute] = useState("opps");
-  const [proposals, setProposals] = useState(KAIMI_PROPOSALS);
+  const [proposals, setProposals] = useState(isLive() ? [] : KAIMI_PROPOSALS);
+  const [wsView, setWsView] = useState(null);
+  const [toast, setToast] = useState("");
   const [opps, setOpps] = useState(KAIMI_OPPS);
   const [filter, setFilter] = useState("all");
   const [drawerOpp, setDrawerOpp] = useState(null);
@@ -70,6 +105,30 @@ export default function DesktopApp(){
     return ()=>{ alive = false; };
   }, []);
 
+  // Load active proposals from the backend (or the demo set in a plain browser),
+  // and reload after any action that changes pipeline state.
+  const reloadProposals = React.useCallback(()=>{
+    getProposals().then(list => { if(list) setProposals(list); });
+  }, []);
+  useEffect(()=>{ reloadProposals(); }, [reloadProposals]);
+
+  // Load the workspace view-model when viewing a proposal. Live: from the
+  // backend (sections + criteria via internal/zone2view); browser: synthesized
+  // from the demo proposal + review mock so vite dev still renders the gate.
+  useEffect(()=>{
+    if(route!=="workspace" || !workspaceId) return;
+    let alive = true;
+    if(isLive()){
+      getWorkspace(workspaceId).then(v => { if(alive) setWsView(v); });
+    } else {
+      setWsView(mockWs(proposals.find(x=>x.id===workspaceId)));
+    }
+    return ()=>{ alive = false; };
+  }, [route, workspaceId, proposals]);
+
+  // B4: one-shot confirmation toast after a gate action.
+  const showToast = (msg)=>{ setToast(msg); setTimeout(()=>setToast(""), 3200); };
+
   const needsCount = proposals.filter(p=>p.status==="human").length;
   const queuedCount = proposals.filter(p=>p.status==="queued").length;
 
@@ -85,11 +144,11 @@ export default function DesktopApp(){
   }));
   const submittedAll = [...liveSubmitted, ...KAIMI_SUBMITTED];
 
-  /* ---- network toggle: reconnecting processes the queue ---- */
+  /* ---- network toggle: reconnecting processes the queue (mock-only sim) ---- */
   const toggleNet = ()=>{
     const goingOnline = !online;
     setOnline(goingOnline);
-    if(goingOnline){
+    if(goingOnline && !isLive()){
       setProposals(prev => prev.map(x=>{
         if(x.status!=="queued") return x;
         return x._queued==="changes"
@@ -108,6 +167,16 @@ export default function DesktopApp(){
   /* ---- actions (offline-aware) ---- */
   const openOpp = (o)=> setDrawerOpp(o);
   const selectOpp = (o)=>{
+    if(isLive()){
+      pursue(o.id).then(ok=>{
+        if(!ok) return;
+        setPursued(prev => { const n=new Set(prev); n.add(o.id); return n; });
+        setDrawerOpp(null);
+        setRoute("proposals");
+        reloadProposals();
+      });
+      return;
+    }
     if(!online){ return; } // pursuing requires the agent runtime
     const id = "np-"+o.id;
     setProposals(prev => prev.some(x=>x.id===id) ? prev : [{
@@ -124,6 +193,10 @@ export default function DesktopApp(){
   const openDraft = (p)=>{ setWorkspaceId(p.id); setRoute("editor"); };
 
   const approve = (p)=>{
+    if(isLive()){
+      approveProposal(p.id).then(ok=>{ if(ok){ showToast("Approved — Vera is running the final review on your draft."); reloadProposals(); } });
+      return;
+    }
     if(!onlineRef.current){
       setProposals(prev => prev.map(x=> x.id===p.id ? {...x, status:"queued", _queued:"approve", when:"Approved offline · just now"} : x));
       return;
@@ -132,6 +205,10 @@ export default function DesktopApp(){
     setTimeout(()=> setProposals(prev => prev.map(x=> x.id===p.id && x.stageIndex===3 ? {...x, stageIndex:4, status:"done", agents:0, when:"Ready to submit"} : x)), 2600);
   };
   const requestChanges = (p)=>{
+    if(isLive()){
+      apiRequestChanges(p.id, "").then(ok=>{ if(ok){ showToast("Sent back to Tomás — he will revise the draft and return it to you."); reloadProposals(); } });
+      return;
+    }
     if(!onlineRef.current){
       setProposals(prev => prev.map(x=> x.id===p.id ? {...x, status:"queued", _queued:"changes", when:"Changes noted offline · just now"} : x));
       return;
@@ -140,12 +217,16 @@ export default function DesktopApp(){
     setTimeout(()=> setProposals(prev => prev.map(x=> x.id===p.id && x.stageIndex===1 ? {...x, stageIndex:2, status:"human", agents:0, when:"Paused just now"} : x)), 2600);
   };
   const submit = (p)=>{
+    if(isLive()){
+      submitProposal(p.id).then(ok=>{ if(ok){ showToast("Submitted to SAM.gov."); reloadProposals(); } });
+      return;
+    }
     setProposals(prev => prev.map(x=> x.id===p.id ? {...x, status:"submitted", agents:0, when:"Submitted just now"} : x));
   };
 
-  /* ---- ambient autonomy (server events; only while online) ---- */
+  /* ---- ambient autonomy (mock-only sim; live state comes from the backend) ---- */
   useEffect(()=>{
-    if(!onboarded) return;
+    if(!onboarded || isLive()) return;
     const t1 = setTimeout(()=>{
       if(!onlineRef.current) return;
       setProposals(prev => prev.map(x=> (x.id==="p3" && x.status==="progress" && x.stageIndex===1)
@@ -165,10 +246,27 @@ export default function DesktopApp(){
 
   const replayOnboarding = ()=>{ setOnboarded(false); setRoute("opps"); };
 
+  // B3: download the working draft as Markdown (live: from the backend).
+  const downloadDraft = (v)=>{
+    if(!v) return;
+    const name = (v.id || "proposal") + "-draft.md";
+    if(isLive()){
+      draftMarkdown(v.id).then(md => triggerDownload(name, md || ""));
+    } else {
+      triggerDownload(name, "# " + (v.title || "Proposal") + "\n\n" + (v.summary || ""));
+    }
+  };
+
   return (
     <div className="win">
       <TitleBar online={online} onToggleNet={toggleNet} queuedCount={queuedCount}
         onboarded={onboarded} onReplayOnboarding={replayOnboarding} />
+
+      {toast && (
+        <div role="status" style={{position:"fixed", bottom:24, left:"50%", transform:"translateX(-50%)", zIndex:50,
+          background:"#0b2030", color:"#fff", padding:"10px 16px", borderRadius:10,
+          font:"500 13px/1.35 var(--font-sans, sans-serif)", boxShadow:"0 10px 28px rgba(0,0,0,.28)"}}>{toast}</div>
+      )}
 
       {!onboarded ? (
         <div className="win-main">
@@ -201,8 +299,9 @@ export default function DesktopApp(){
                       <SubmittedScreen items={submittedAll} />
                     )}
                     {effRoute==="workspace" && (
-                      <WorkspaceScreen p={wsProp} onBack={()=>setRoute("proposals")}
-                        onApprove={approve} onChanges={requestChanges} onSubmit={submit} onOpenDraft={openDraft} />
+                      <WorkspaceScreen p={wsView} onBack={()=>setRoute("proposals")}
+                        onApprove={approve} onChanges={requestChanges} onSubmit={submit}
+                        onOpenDraft={openDraft} onDownloadDraft={()=>downloadDraft(wsView)} />
                     )}
                   </div>
                 </main>
