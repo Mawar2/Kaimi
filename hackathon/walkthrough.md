@@ -1,6 +1,6 @@
 # Hackathon Submission Deliverables Walkthrough
 
-Congratulations on getting Kaimi ready for **Track 1: Build (Net-New Agents)** of the Google for Startups AI Agents Challenge! 
+Congratulations on getting Kaimi ready for **Track 2: Optimize (Existing Agents)** of the Google for Startups AI Agents Challenge! 
 
 Here is what we completed to fulfill the submission requirements:
 
