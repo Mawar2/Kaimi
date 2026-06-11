@@ -13,7 +13,7 @@ import { SubmittedScreen } from './submitted.jsx';
 import { KAIMI_PROPOSALS, KAIMI_OPPS, KAIMI_SUBMITTED, KAIMI_REVIEW } from './data.js';
 import {
   getOpportunities, getProposals, getWorkspace,
-  pursue, approveProposal, requestChanges as apiRequestChanges, submitProposal, draftMarkdown,
+  pursue, approveProposal, requestChanges as apiRequestChanges, submitProposal, draftMarkdown, updateSection,
 } from './api.js';
 
 // isLive reports whether the Wails backend bindings are present. Checked at call
@@ -282,7 +282,8 @@ export default function DesktopApp(){
           )}
           <div className="win-main">
             {effRoute==="editor" ? (
-              <DraftEditor proposal={wsProp} online={online} onBack={()=>setRoute("workspace")} />
+              <DraftEditor proposal={wsProp} view={wsView} online={online} onBack={()=>setRoute("workspace")}
+                onSaveSection={(sid, body)=>{ if(wsView) updateSection(wsView.id, sid, body); }} />
             ) : (
               <div className="app">
                 <Sidebar route={effRoute} go={setRoute} needsCount={needsCount}

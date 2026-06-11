@@ -24,7 +24,19 @@ const ED_SECTIONS = [
     body:["A monthly quality gate reviews deliverables against the QASP, with metrics reported through the COR dashboard."] },
 ];
 
-function DraftEditor({ proposal, online, onBack }){
+// liveSections maps the backend workspace sections (heading/body/status) to the
+// editor's section shape. Returns null when no live view is present, so the
+// browser/demo falls back to the bundled ED_SECTIONS.
+function liveSections(view){
+  if(!view || !Array.isArray(view.sections) || view.sections.length === 0) return null;
+  return view.sections.map((s,i)=>({
+    id: s.id, no: String(i+1), title: s.heading || `Section ${i+1}`,
+    reqs: s.status || "", state: "ok", body: (s.body || "").split(/\n{2,}/).filter(Boolean),
+  }));
+}
+
+function DraftEditor({ proposal, view, online, onBack, onSaveSection }){
+  const sections = liveSections(view) || ED_SECTIONS;
   const [cur, setCur] = React.useState(0);
   const [edited, setEdited] = React.useState(false);
   const [saveState, setSaveState] = React.useState("saved"); // saved | saving
@@ -32,11 +44,15 @@ function DraftEditor({ proposal, online, onBack }){
   const secRefs = React.useRef([]);
   const saveTimer = React.useRef(null);
 
-  const onEdit = ()=>{
+  // Debounced save: persist the edited section to the backend (live) on pause.
+  const onEdit = (sec, el)=>{
     setEdited(true);
     setSaveState("saving");
     clearTimeout(saveTimer.current);
-    saveTimer.current = setTimeout(()=> setSaveState("saved"), 900);
+    saveTimer.current = setTimeout(()=>{
+      if(onSaveSection && sec && sec.id){ onSaveSection(sec.id, el ? el.innerText : ""); }
+      setSaveState("saved");
+    }, 900);
   };
   React.useEffect(()=> ()=> clearTimeout(saveTimer.current), []);
 
@@ -49,8 +65,8 @@ function DraftEditor({ proposal, online, onBack }){
   return (
     <div className="ed">
       <div className="ed-rail">
-        <div className="er-h">Sections · 7</div>
-        {ED_SECTIONS.map((s,i)=>(
+        <div className="er-h">Sections · {sections.length}</div>
+        {sections.map((s,i)=>(
           <button key={i} className={`ed-sec ${s.state==="warn"?"warn":""} ${cur===i?"cur":""}`} onClick={()=>jump(i)}>
             <span className="dot"></span>
             <span style={{minWidth:0}}>
@@ -64,7 +80,7 @@ function DraftEditor({ proposal, online, onBack }){
       <div className="ed-main">
         <div className="ed-top">
           <Btn variant="ghost" size="sm" icon={<I.back width={15} height={15}/>} onClick={onBack}>Back to review</Btn>
-          <div className="ed-name">Technical Volume — working draft<span>{proposal ? proposal.title : ""}</span></div>
+          <div className="ed-name">Technical Volume — working draft<span>{(view && view.title) || (proposal && proposal.title) || ""}</span></div>
           <div style={{flex:1}}></div>
           <span className={`ed-ver ${edited?"you":""}`}>{edited ? "v4 · edited by you" : "v3 · Tomás"}</span>
           <span className={`ed-save ${saveState==="saving"?"saving":""}`}>
@@ -75,15 +91,15 @@ function DraftEditor({ proposal, online, onBack }){
 
         <div className="ed-scroll" ref={scrollRef}>
           <div className="ed-doc">
-            <div className="ed-title">Zero Trust Architecture Modernization — Technical Volume</div>
-            <div className="ed-meta">DHS · CISA · SOL# 70RCSA24R0000123 · 18 pp · compliance 22/24 · click any paragraph to edit</div>
-            {ED_SECTIONS.map((s,i)=>(
+            <div className="ed-title">{(view && view.title) || (proposal && proposal.title) || "Working draft"} — Technical Volume</div>
+            <div className="ed-meta">{(proposal && proposal.agency) || (view && view.agency) || ""} · click any paragraph to edit · your edits carry into Vera's final pass</div>
+            {sections.map((s,i)=>(
               <section key={i} ref={el=>secRefs.current[i]=el}>
                 <div className="sec-head2">
                   <h3><span className="no">{s.no}</span>{s.title}</h3>
                   <span className="reqtag">{s.reqs}</span>
                 </div>
-                <div contentEditable suppressContentEditableWarning spellCheck="false" onInput={onEdit}>
+                <div contentEditable suppressContentEditableWarning spellCheck="false" onInput={(e)=>onEdit(s, e.currentTarget)}>
                   {s.body.map((p,j)=><p key={j}>{p}</p>)}
                 </div>
                 {s.flagged && (
