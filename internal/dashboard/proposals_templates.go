@@ -200,6 +200,8 @@ const workspaceContentTmpl = `{{define "content"}}
 <div class="ws">
   <a class="back" href="/proposals">` + iconBack + `All proposals</a>
 
+  {{if .Flash}}<div class="ws-flash">` + iconCheck + `<span>{{.Flash}}</span></div>{{end}}
+
   <div class="ws-head">
     {{if .ScorePct}}{{fitRing .ScorePct 64}}{{end}}
     <div class="ws-id">
@@ -343,6 +345,8 @@ const workspaceContentTmpl = `{{define "content"}}
 </div>
 
 <style>
+  .ws-flash { display: flex; align-items: center; gap: 8px; margin: 12px 0 0; padding: 10px 14px; border-radius: var(--r-md); background: var(--st-done-bg); color: var(--st-done); border: 1px solid color-mix(in oklab, var(--st-done) 35%, transparent); font: var(--t-small); }
+  .ws-flash svg { width: 18px; height: 18px; flex: none; }
   .edsec { margin-top: 14px; }
   .edsec textarea { width: 100%; min-height: 120px; font: var(--t-body); color: var(--ink); background: var(--surface); border: 1px solid var(--border); border-radius: var(--r-md); padding: 12px 14px; resize: vertical; box-sizing: border-box; }
   .edsec textarea:focus { outline: none; box-shadow: 0 0 0 3px var(--ring-focus); border-color: var(--blue-300); }
