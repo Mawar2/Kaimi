@@ -82,6 +82,13 @@ func newProposalService(s store.Store, basePath string, liveWriter, liveReview, 
 	// gemini-3.1-pro-preview (drafting) and gemini-3.5-flash (outline structure) —
 	// is served only from the global endpoint, so that is the default.
 	region := envOr("GCP_REGION", "global")
+	// GA fallback model for the Writer and Final Review: if the preview drafting
+	// model has an outage, gemini-2.5-pro (GA, regional) serves instead — graceful
+	// degradation, never a stub. It uses its own region because the GA pro model is
+	// served regionally, not from the global endpoint.
+	fbModel := envOr("GEMINI_FALLBACK_MODEL", "gemini-2.5-pro")
+	fbRegion := envOr("GEMINI_FALLBACK_REGION", "us-east4")
+	writerModel := envOr("GEMINI_MODEL", "gemini-3.1-pro-preview")
 
 	ol := outline.New(docsClient) // deterministic section planner (offline default)
 	w := writer.New()             // stub writer (offline default)
@@ -98,15 +105,20 @@ func newProposalService(s store.Store, basePath string, liveWriter, liveReview, 
 		if err != nil {
 			return nil, fmt.Errorf("gemini outline planner: %w", err)
 		}
-		ol = outline.NewWithPlanner(docsClient, planner)
+		// Wrap so a flash outage degrades to the deterministic rule-based planner
+		// (NewFallbackPlanner appends it as the always-succeeding last resort).
+		ol = outline.NewWithPlanner(docsClient, outline.NewFallbackPlanner(planner))
 
-		gen, err := writer.NewGeminiGenerator(context.Background(),
-			projectID, region, envOr("GEMINI_MODEL", "gemini-3.1-pro-preview"))
+		primaryGen, err := writer.NewGeminiGenerator(context.Background(), projectID, region, writerModel)
 		if err != nil {
-			return nil, fmt.Errorf("gemini generator: %w", err)
+			return nil, fmt.Errorf("gemini writer (primary %s): %w", writerModel, err)
 		}
-		w = writer.NewWithGenerator(gen)
-		log.Printf("Outline: LIVE gemini-3.5-flash planner; Technical Writer %q: LIVE gemini-3.1-pro-preview drafting (project %s)", "Thomas", projectID)
+		fallbackGen, err := writer.NewGeminiGenerator(context.Background(), projectID, fbRegion, fbModel)
+		if err != nil {
+			return nil, fmt.Errorf("gemini writer (GA fallback %s): %w", fbModel, err)
+		}
+		w = writer.NewWithGenerator(writer.NewFallbackGenerator(primaryGen, fallbackGen))
+		log.Printf("Outline: LIVE gemini-3.5-flash planner (→ deterministic fallback); Technical Writer %q: LIVE %s → %s (GA) fallback (project %s)", "Thomas", writerModel, fbModel, projectID)
 	} else {
 		log.Printf("Outline + Technical Writer: OFFLINE stub mode (-offline) — live Gemini agents are the default")
 	}
@@ -117,13 +129,16 @@ func newProposalService(s store.Store, basePath string, liveWriter, liveReview, 
 		if projectID == "" {
 			return nil, fmt.Errorf("live agents require GCP_PROJECT_ID (or pass -offline for credential-less UI dev)")
 		}
-		checker, err := finalreview.NewGeminiComplianceChecker(context.Background(),
-			projectID, region, envOr("GEMINI_MODEL", "gemini-3.1-pro-preview"))
+		primaryChecker, err := finalreview.NewGeminiComplianceChecker(context.Background(), projectID, region, writerModel)
 		if err != nil {
-			return nil, fmt.Errorf("gemini compliance checker: %w", err)
+			return nil, fmt.Errorf("gemini compliance checker (primary %s): %w", writerModel, err)
 		}
-		review = finalreview.NewWithComplianceChecker(checker)
-		log.Printf("Final Review: LIVE gemini-3.1-pro-preview compliance pass on top of the deterministic checks (project %s)", projectID)
+		fallbackChecker, err := finalreview.NewGeminiComplianceChecker(context.Background(), projectID, fbRegion, fbModel)
+		if err != nil {
+			return nil, fmt.Errorf("gemini compliance checker (GA fallback %s): %w", fbModel, err)
+		}
+		review = finalreview.NewWithComplianceChecker(finalreview.NewFallbackChecker(primaryChecker, fallbackChecker))
+		log.Printf("Final Review: LIVE %s → %s (GA) compliance pass on top of the deterministic checks (project %s)", writerModel, fbModel, projectID)
 	} else {
 		log.Printf("Final Review: OFFLINE deterministic checks only (-offline) — live Gemini compliance is the default")
 	}
