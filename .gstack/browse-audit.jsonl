@@ -1,2 +1,0 @@
-{"ts":"2026-06-11T01:16:11.248Z","cmd":"goto","args":"http://127.0.0.1:8912/","origin":"http://127.0.0.1:8912/","durationMs":47,"status":"ok","hasCookies":false,"mode":"launched"}
-{"ts":"2026-06-11T01:16:11.368Z","cmd":"js","args":"JSON.stringify({oppCountNav:(document.querySelector('a.nav-item[href=\"/\"] .count')||{}).textContent,submittedNav:(document.querySelector('a.nav-item[href=\"/submitted\"] .count')||{}).textContent,visibl…","origin":"http://127.0.0.1:8912/","durationMs":2,"status":"ok","hasCookies":false,"mode":"launched"}
