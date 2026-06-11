@@ -187,11 +187,11 @@ func newProposalService(s store.Store, basePath string, liveWriter, liveReview, 
 	}), nil
 }
 
-func envOr(key, fallback string) string {
+func envOr(key, def string) string {
 	if v := os.Getenv(key); v != "" {
 		return v
 	}
-	return fallback
+	return def
 }
 
 func run() error {
