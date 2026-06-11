@@ -92,13 +92,26 @@ export async function getProposals(){
   }
 }
 
-// getWorkspace returns the single-proposal view-model from the backend, or null
-// in a plain browser (the caller keeps its mock proposal then).
+// getWorkspace returns the single-proposal view-model normalized to the screen's
+// shape (fit, deadline label/level, status, sections, criteria{label,note,state},
+// flags). Criteria state comes from the shared internal/zone2view matcher (B6).
+// Returns null in a plain browser, so the caller keeps its mock proposal.
 export async function getWorkspace(id){
   const A = app();
   if(!A || typeof A.Workspace !== "function") return null;
   try {
-    return await A.Workspace(id);
+    const w = await A.Workspace(id);
+    if(!w) return null;
+    const dl = deadlineInfo(w.deadline);
+    return {
+      id: w.id, title: w.title, agency: w.agency, fit: w.scorePct,
+      deadlineLabel: dl.label, deadlineLevel: dl.level,
+      stageIndex: w.stageIndex, status: w.state, phrase: w.phrase, atGate: w.atGate,
+      hasDraft: w.hasDraft, version: w.version, lastEditor: w.lastEditor,
+      sections: w.sections || [],
+      criteria: (w.criteria || []).map(c => ({ label: c.label, note: c.note, state: c.ok ? "ok" : "warn" })),
+      flags: (w.openFlags || []).map(f => ({ title: f.title, detail: f.detail })),
+    };
   } catch (e) {
     return null;
   }
