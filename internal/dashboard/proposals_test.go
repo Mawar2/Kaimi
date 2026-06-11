@@ -317,6 +317,68 @@ func TestListAndWorkspaceAgreeOnState(t *testing.T) {
 	}
 }
 
+// TestGateCriteriaMatchesParaphrase renders the gate and proves the criteria
+// grid (issue #246 B6): a must-have the draft addresses in different words shows
+// as met, and a genuinely-absent one reads "could not auto-confirm" rather than
+// falsely asserting it is missing. Seeds a gated proposal directly so the test
+// needs no live agents.
+func TestGateCriteriaMatchesParaphrase(t *testing.T) {
+	dir := t.TempDir()
+	opps, err := store.NewJSONStore(dir)
+	if err != nil {
+		t.Fatalf("store: %v", err)
+	}
+	docs, err := document.NewStore(dir)
+	if err != nil {
+		t.Fatalf("docs: %v", err)
+	}
+	docsClient, err := googledocs.NewClient(context.Background(), googledocs.Config{UseCached: true})
+	if err != nil {
+		t.Fatalf("docs client: %v", err)
+	}
+	svc := proposal.NewService(&proposal.Deps{
+		Opportunities: opps, Documents: docs,
+		Outline: outline.New(docsClient), Writer: writer.New(), Review: finalreview.New(),
+	})
+	now := time.Now()
+	opp := &opportunity.Opportunity{
+		ID: "crit-1", Title: "Criteria Opp", Agency: "DHS",
+		Selected: true, SelectedAt: &now, ProposalStatus: proposal.StatusGate,
+		Requirements:     []string{"FedRAMP High authorization", "ISO 27001 certification"},
+		ResponseDeadline: now.Add(20 * 24 * time.Hour), UpdatedAt: now,
+	}
+	if err := opps.Save(context.Background(), opp); err != nil {
+		t.Fatalf("seed opp: %v", err)
+	}
+	doc := &document.Document{
+		OpportunityID: "crit-1", Title: "Criteria Opp — Technical Volume",
+		Sections: []document.Section{
+			{ID: "approach", Heading: "Technical Approach",
+				Body:   "We deploy only FedRAMP High authorized tooling across the environment.",
+				Status: "drafted"},
+		},
+	}
+	if err := docs.Create(doc, "writer", "draft"); err != nil {
+		t.Fatalf("create doc: %v", err)
+	}
+
+	h := dashboard.NewHandler(dashboard.NewService(opps), dashboard.WithProposals(svc))
+	h.Now = func() time.Time { return now }
+	body := get(t, h, "/workspace/crit-1")
+
+	// The paraphrased requirement is recognized as met (at least one ok item).
+	if !contains(body, "citem ok") {
+		t.Errorf("paraphrased must-have should render as met (citem ok)")
+	}
+	// The genuinely-absent requirement is honest: not asserted missing.
+	if !contains(body, "could not auto-confirm") {
+		t.Errorf("an unconfirmed must-have should read 'could not auto-confirm', not assert it is missing")
+	}
+	if contains(body, "Not yet addressed in the draft") {
+		t.Errorf("old false-assertion copy should be gone")
+	}
+}
+
 // TestProposalGuards covers method/id/state validation.
 func TestProposalGuards(t *testing.T) {
 	h, svc, _ := newProposalHandler(t)
