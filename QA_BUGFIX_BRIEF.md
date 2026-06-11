@@ -47,6 +47,18 @@ reviewing"; (b) **real progress** — with live agents the redraft/review actual
 **AC:** after Request changes, user sees confirmation and the draft/version changes; after Approve,
 Vera runs on live content and can reach ready-to-submit (not auto-bounce on stub text).
 
+### B6 — Criteria check false-negative: "must-have missing" when it's in the draft (HIGH)
+`internal/dashboard/proposals.go` `deriveCriteria` does
+`strings.Contains(strings.ToLower(doc.Markdown()), strings.ToLower(req))` — a verbatim
+full-phrase substring match. Any requirement not copied word-for-word (e.g. req
+"FedRAMP High authorization" vs draft "FedRAMP High authorized tooling") falsely shows
+"Not yet addressed", misleading the human at the go/no-go gate. Reported by Malik 2026-06-11.
+**Fix:** replace verbatim phrase match with keyword/token-overlap scoring (e.g. the
+requirement's significant terms appearing in the draft), and soften copy so an unconfirmed
+item reads "Kaimi couldn't auto-confirm — verify" rather than asserting it's missing. Keep it
+honest/derived (no fabrication). **AC:** a draft that addresses a requirement in different
+words is NOT flagged missing; table-driven test covers verbatim, paraphrase, and genuinely-absent.
+
 ### B5 — Agent behavior: go live / no-stub failover (HIGH, reuse pr245)
 Bring `pr245`'s real-model failover for Writer + Final Review onto this branch (cherry-pick
 `1a1afc4` + its `#243` base, or rebase). Default the dashboard to live agents with graceful
@@ -73,6 +85,7 @@ card state matches the workspace at each step. Re-check `:8907`/`:8913` parity (
 - [ ] B2 cross-view state drift — fixed + test + verified
 - [ ] B3 draft.md/document.json artifacts — fixed + verified
 - [ ] B4 gate-action feedback + real redraft/review — fixed + verified
+- [ ] B6 criteria false-negative (keyword match + honest copy) — fixed + test + verified
 - [ ] B5 live/no-stub failover (pr245 reuse) — landed + verified end-to-end
 - [ ] `make all` green (build + test + lint)
 - [ ] PR opened for Malik to merge (references issues)
