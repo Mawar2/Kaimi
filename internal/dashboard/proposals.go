@@ -3,8 +3,10 @@ package dashboard
 import (
 	"fmt"
 	"html/template"
+	"io"
 	"net/http"
 	"strings"
+	"unicode"
 
 	"github.com/Mawar2/Kaimi/internal/document"
 	"github.com/Mawar2/Kaimi/internal/opportunity"
@@ -149,6 +151,25 @@ type WorkspaceData struct {
 	OpenFlags     []document.Flag
 	VersionLabel  string
 	AtGate        bool
+	// Flash is a one-shot confirmation banner shown after a gate action
+	// (issue #246 B4), derived from the ?flash= redirect marker.
+	Flash string
+}
+
+// gateFlashMessage maps a ?flash= redirect marker to the confirmation banner the
+// workspace shows after a gate action, so Request changes / Approve / Submit
+// never read as "nothing happened".
+func gateFlashMessage(flash string) string {
+	switch flash {
+	case "changes":
+		return "Sent back to Tomás — he will revise the draft and return it to you."
+	case "approve":
+		return "Approved — Vera is running the final review on your draft."
+	case "submit":
+		return "Submitted to SAM.gov."
+	default:
+		return ""
+	}
 }
 
 // CritItem is one check on the gate's criteria grid, derived from the
@@ -210,7 +231,9 @@ func (h *Handler) handleProposals(w http.ResponseWriter, r *http.Request) {
 		if row.Stage == StageHunted || row.Stage == StageScored {
 			continue
 		}
-		stageIndex, state := proposalView(rowStatus(row))
+		// Derive the card state from the SAME raw status the workspace uses,
+		// so the two views can never disagree (issue #246 B2).
+		stageIndex, state := proposalView(row.ProposalStatus)
 		card := PropCard{
 			ID:         row.ID,
 			Title:      row.Title,
@@ -255,23 +278,6 @@ func (h *Handler) handleProposals(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
-// rowStatus recovers the raw ProposalStatus for a list row via its stage:
-// the list view-model doesn't carry the raw status, so re-read it.
-func rowStatus(row *OpportunityRow) string {
-	switch row.Stage {
-	case StageSubmitted:
-		return proposal.StatusSubmitted
-	case StageFinalized:
-		return proposal.StatusReadyToSubmit
-	case StageAwaitingHumanReview:
-		return proposal.StatusGate
-	case StageSelected:
-		return proposal.StatusOutlineRunning
-	default:
-		return proposal.StatusWriterRunning
-	}
-}
-
 // stageLabelFor renders the mini-pipeline caption.
 func stageLabelFor(stageIndex int, state string) string {
 	switch state {
@@ -312,6 +318,10 @@ func (h *Handler) handleWorkspace(w http.ResponseWriter, r *http.Request) {
 		AtGate:     state == "human",
 	}
 	data.AgentLine = agentLines[agentKeyFor(stageIndex)]
+	data.Flash = gateFlashMessage(r.URL.Query().Get("flash"))
+	// The sidebar shows the same queue/needs/active counts here as on every
+	// other page (issue #246 B1).
+	h.fillShellCounts(r.Context(), &data.shellData, now)
 	if opp.Score > 0 {
 		data.ScorePct = int(0.5 + opp.Score*100)
 	}
@@ -365,8 +375,12 @@ func versionLabel(doc *document.Document) string {
 	return fmt.Sprintf("v%d · %s", doc.Version, name)
 }
 
-// deriveCriteria checks each must-have requirement against the current
-// draft content — honest, derived state, never fabricated.
+// deriveCriteria checks each must-have requirement against the current draft
+// content — honest, derived state, never fabricated. The check is a lenient
+// term-overlap heuristic (see requirementAddressed), so an unconfirmed item is
+// surfaced as "could not auto-confirm — verify" rather than asserted missing
+// (issue #246 B6): the old verbatim phrase match flagged any paraphrase as
+// absent, misleading the human exactly at the go/no-go gate.
 func deriveCriteria(opp *opportunity.Opportunity, doc *document.Document) []CritItem {
 	if len(opp.Requirements) == 0 {
 		return nil
@@ -374,14 +388,75 @@ func deriveCriteria(opp *opportunity.Opportunity, doc *document.Document) []Crit
 	text := strings.ToLower(doc.Markdown())
 	items := make([]CritItem, 0, len(opp.Requirements))
 	for _, req := range opp.Requirements {
-		ok := strings.Contains(text, strings.ToLower(req))
-		item := CritItem{Label: req, OK: ok}
-		if !ok {
-			item.Note = "Not yet addressed in the draft"
+		item := CritItem{Label: req, OK: requirementAddressed(text, req)}
+		if !item.OK {
+			item.Note = "Kaimi could not auto-confirm this — verify in the draft"
 		}
 		items = append(items, item)
 	}
 	return items
+}
+
+// requirementStopwords are common words dropped before term matching so the
+// signal comes from the requirement's meaningful terms, not filler.
+var requirementStopwords = map[string]bool{
+	"the": true, "and": true, "for": true, "with": true, "must": true,
+	"shall": true, "will": true, "have": true, "from": true, "that": true,
+	"this": true, "any": true, "all": true, "are": true, "per": true,
+	"including": true, "provide": true, "required": true,
+}
+
+// requirementAddressed reports whether the draft plausibly addresses a
+// requirement. The previous check demanded the full requirement phrase verbatim,
+// so a paraphrase ("FedRAMP High authorized tooling" vs requirement "FedRAMP
+// High authorization") was wrongly flagged missing. Instead, score the overlap
+// of the requirement's significant terms against the draft, comparing stems so
+// "authorization" is satisfied by "authorized". A requirement counts as
+// addressed when at least two-thirds of its significant terms appear — lenient
+// enough to tolerate a synonym swap, strict enough not to match on noise. The
+// draft is passed already lowercased by deriveCriteria.
+func requirementAddressed(draftLower, requirement string) bool {
+	terms := significantRequirementTerms(requirement)
+	if len(terms) == 0 {
+		// No meaningful terms (e.g. a requirement of only stopwords): fall back
+		// to the whole-phrase check rather than claiming a spurious match.
+		return strings.Contains(draftLower, strings.ToLower(strings.TrimSpace(requirement)))
+	}
+	hits := 0
+	for _, term := range terms {
+		if strings.Contains(draftLower, stemTerm(term)) {
+			hits++
+		}
+	}
+	return hits*3 >= len(terms)*2
+}
+
+// significantRequirementTerms splits a requirement into lowercased, meaningful
+// terms: alphanumeric runs of length >= 3 that are not stopwords.
+func significantRequirementTerms(requirement string) []string {
+	var terms []string
+	for _, field := range strings.FieldsFunc(strings.ToLower(requirement), func(r rune) bool {
+		return !unicode.IsLetter(r) && !unicode.IsNumber(r)
+	}) {
+		if len(field) < 3 || requirementStopwords[field] {
+			continue
+		}
+		terms = append(terms, field)
+	}
+	return terms
+}
+
+// stemTerm trims a few common English suffixes so inflected forms match a shared
+// stem ("authorization"/"authorized" -> "author", "modernization"/"modernize"
+// -> "modern"). Longest suffixes are checked first; the length guard keeps short
+// words intact.
+func stemTerm(term string) string {
+	for _, suf := range []string{"ization", "isation", "ation", "izing", "ized", "izes", "ing", "ed", "es", "s"} {
+		if len(term) > len(suf)+2 && strings.HasSuffix(term, suf) {
+			return term[:len(term)-len(suf)]
+		}
+	}
+	return term
 }
 
 // handleAction dispatches the gate decisions and submit.
@@ -409,8 +484,33 @@ func (h *Handler) handleAction(action string) http.HandlerFunc {
 			http.Error(w, err.Error(), http.StatusConflict)
 			return
 		}
-		http.Redirect(w, r, "/workspace/"+id, http.StatusSeeOther)
+		// Redirect with a flash marker so the workspace confirms the action
+		// (issue #246 B4); action is one of the validated literals above.
+		http.Redirect(w, r, "/workspace/"+id+"?flash="+action, http.StatusSeeOther)
 	}
+}
+
+// handleDraftDownload serves the proposal's working draft as a Markdown file so
+// the workspace's "draft.md" is a real, openable artifact instead of a dead
+// label (issue #246 B3). The internal document.json is intentionally not exposed.
+func (h *Handler) handleDraftDownload(w http.ResponseWriter, r *http.Request) {
+	if h.proposals == nil {
+		http.Error(w, "proposal actions are not enabled on this server", http.StatusServiceUnavailable)
+		return
+	}
+	id := r.PathValue("id")
+	if !opportunityIDPattern.MatchString(id) {
+		h.renderNotFound(w, id)
+		return
+	}
+	doc, err := h.proposals.Document(id)
+	if err != nil {
+		h.renderNotFound(w, id)
+		return
+	}
+	w.Header().Set("Content-Type", "text/markdown; charset=utf-8")
+	w.Header().Set("Content-Disposition", fmt.Sprintf("attachment; filename=%q", id+"-draft.md"))
+	_, _ = io.WriteString(w, doc.Markdown())
 }
 
 func (h *Handler) handleSectionSave(w http.ResponseWriter, r *http.Request) {
