@@ -392,10 +392,12 @@ func (h *Handler) setupTemplates() {
 		"miniPipe":     miniPipe,
 		"wPipe":        wPipe,
 		"propChip":     propChip,
-		// Unresolved Writer gaps (issue #269): per-body gap texts for the
-		// section editors, inline <mark> highlighting for read-only views.
+		// Unresolved Writer gaps (issues #269/#274): per-body gap texts for
+		// the section gap bars, inline <mark> highlighting for read-only
+		// views, and the aggregated review-gate summary.
 		"gapTexts":      finalreview.GapTexts,
 		"highlightGaps": highlightGaps,
+		"gapSummary":    summarizeGaps,
 		"orDash": func(s string) string {
 			if s == "" {
 				return "—"

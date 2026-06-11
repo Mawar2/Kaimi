@@ -71,6 +71,62 @@ func highlightGaps(body string) template.HTML {
 	return template.HTML(b.String()) //nolint:gosec // input is escaped above; only our own <mark> wrapper is added
 }
 
+// gapSummaryData aggregates every unresolved Writer gap across a document's
+// sections for the review gate's top-of-page summary (issue #274) — one
+// GOV.UK-style block with anchor links instead of a banner per gap.
+type gapSummaryData struct {
+	Total    int                 // gaps across the whole document
+	Headline string              // e.g. "3 unresolved gaps across 2 sections"
+	Sections []gapSummarySection // only sections that hold gaps, in order
+}
+
+// gapSummarySection is one gap-holding section in the review-gate summary.
+type gapSummarySection struct {
+	ID      string
+	Heading string
+	Count   int
+}
+
+// summarizeGaps builds the review-gate gap summary from the live section
+// bodies, so it agrees with the per-section gap bars by construction.
+func summarizeGaps(sections []document.Section) gapSummaryData {
+	var d gapSummaryData
+	for _, s := range sections {
+		n := len(finalreview.GapTexts(s.Body))
+		if n == 0 {
+			continue
+		}
+		d.Total += n
+		d.Sections = append(d.Sections, gapSummarySection{ID: s.ID, Heading: s.Heading, Count: n})
+	}
+	d.Headline = fmt.Sprintf("%d unresolved %s across %d %s",
+		d.Total, pluralize(d.Total, "gap"), len(d.Sections), pluralize(len(d.Sections), "section"))
+	return d
+}
+
+// pluralize returns word with an "s" appended unless n is exactly 1.
+func pluralize(n int, word string) string {
+	if n == 1 {
+		return word
+	}
+	return word + "s"
+}
+
+// openNonGapFlags returns the document flags the review gate should banner:
+// unresolved flags that are NOT per-gap "Unresolved gap" flags. Gaps are
+// surfaced by the aggregated summary and section bars instead (issue #274) —
+// bannering them too would re-introduce the one-callout-per-gap spam.
+func openNonGapFlags(flags []document.Flag) []document.Flag {
+	var open []document.Flag
+	for _, f := range flags {
+		if f.Resolved || f.Title == gapFlagTitle {
+			continue
+		}
+		open = append(open, f)
+	}
+	return open
+}
+
 // handleEditor renders the full-page draft editor for a selected proposal.
 func (h *Handler) handleEditor(w http.ResponseWriter, r *http.Request) {
 	if h.proposals == nil {
@@ -173,13 +229,17 @@ const editorPageTmpl = `<!DOCTYPE html>
               <textarea name="body" rows="8"{{if .Gaps}} class="gap-warn"{{end}}>{{.Body}}</textarea>
               <noscript><button class="kbtn kbtn--secondary kbtn--sm" style="margin-top:6px">Save section</button></noscript>
             </form>
-            {{range .Gaps}}
-            <div class="ed-flag ed-gap">
+            <div class="ed-flag ed-gap" data-gapbar{{if not .Gaps}} hidden{{end}}>
               <span class="ef-ic">` + iconWarn + `</span>
-              <div><b>Unresolved gap</b><p>{{.}}</p></div>
-              <button type="button" class="kbtn kbtn--ghost kbtn--sm gap-jump" data-gap="{{.}}">Find in text</button>
+              <div>
+                <b data-gapcount>{{len .Gaps}} unresolved gap{{if ne (len .Gaps) 1}}s{{end}}</b>
+                <ul class="gap-list" data-gaplist hidden>
+                  {{range .Gaps}}<li>{{.}}</li>{{end}}
+                </ul>
+              </div>
+              <button type="button" class="kbtn kbtn--ghost kbtn--sm gap-toggle" data-gaptoggle>Show list</button>
+              <button type="button" class="kbtn kbtn--ghost kbtn--sm gap-next" data-gapnext>Next gap &rsaquo;</button>
             </div>
-            {{end}}
             {{if .Flag}}
             <div class="ed-flag">
               <span class="ef-ic">` + iconWarn + `</span>
@@ -220,22 +280,104 @@ const editorPageTmpl = `<!DOCTYPE html>
       }, 900);
     });
   });
-  // Jump-to-gap: select the [GAP: ...] marker inside the section's textarea so
-  // the browser scrolls to it and the human sees exactly what is missing.
-  document.querySelectorAll(".gap-jump").forEach(function (b) {
-    b.addEventListener("click", function () {
-      var area = b.closest("section").querySelector("textarea");
-      if (!area) return;
-      var idx = area.value.indexOf(b.getAttribute("data-gap"));
-      var start = idx < 0 ? area.value.indexOf("[GAP:") : area.value.lastIndexOf("[GAP:", idx);
-      if (start < 0) return;
-      var end = area.value.indexOf("]", start);
-      area.focus();
-      area.setSelectionRange(start, end < 0 ? area.value.length : end + 1);
-      area.scrollIntoView({ behavior: "smooth", block: "center" });
-    });
-  });
+` + gapScriptJS + `
 </script>
 </body>
 </html>
+`
+
+// gapScriptJS is the client half of the aggregated gap UI (issue #274),
+// shared by the full-page editor and the workspace review gate. It keeps each
+// section's gap bar live while the human types — count, list, textarea tint,
+// rail dot, and the gate summary all derive from the textarea value, so they
+// clear the moment the last [GAP: ...] marker is filled (no reload) — and
+// drives the "Next gap" cycling and the on-demand gap list.
+const gapScriptJS = `
+  // Mirrors finalreview.GapTexts: every "[GAP:" marker counts as one gap; its
+  // text runs to the closing "]" or, if the model left it unclosed, to the
+  // end of its line.
+  function gapTexts(text) {
+    var gaps = [];
+    text.split("\n").forEach(function (line) {
+      var from = 0;
+      for (;;) {
+        var s = line.indexOf("[GAP:", from);
+        if (s < 0) break;
+        var e = line.indexOf("]", s);
+        gaps.push((e < 0 ? line.slice(s + 5) : line.slice(s + 5, e)).trim());
+        from = e < 0 ? line.length : e + 1;
+      }
+    });
+    return gaps;
+  }
+  // Keep the review-gate summary (if this page has one) agreeing with the
+  // per-section bars: recount every section, update the per-section rows, and
+  // hide the whole block when the draft is clean.
+  function updateGapSummary() {
+    var sum = document.querySelector("[data-gapsummary]");
+    if (!sum) return;
+    var total = 0, secs = 0;
+    document.querySelectorAll("[data-gapbar]").forEach(function (bar) {
+      var sec = bar.closest("section");
+      var area = sec && sec.querySelector("textarea");
+      if (!area) return;
+      var n = gapTexts(area.value).length;
+      var li = sec.id ? sum.querySelector('li[data-sec="' + sec.id + '"]') : null;
+      if (li) {
+        li.hidden = n === 0;
+        var c = li.querySelector(".gs-n");
+        if (c) c.textContent = n;
+      }
+      if (n > 0) { total += n; secs += 1; }
+    });
+    sum.hidden = total === 0;
+    var h = sum.querySelector("[data-gapheadline]");
+    if (h) h.textContent = total + " unresolved " + (total === 1 ? "gap" : "gaps")
+      + " across " + secs + " " + (secs === 1 ? "section" : "sections");
+  }
+  document.querySelectorAll("[data-gapbar]").forEach(function (bar) {
+    var sec = bar.closest("section");
+    var area = sec && sec.querySelector("textarea");
+    if (!area) return;
+    var count = bar.querySelector("[data-gapcount]");
+    var list = bar.querySelector("[data-gaplist]");
+    var toggle = bar.querySelector("[data-gaptoggle]");
+    var next = bar.querySelector("[data-gapnext]");
+    var rail = sec.id ? document.querySelector('.ed-sec[href="#' + sec.id + '"]') : null;
+    // A non-gap review flag keeps the rail dot amber even once gaps are filled.
+    var hasOtherFlag = !!sec.querySelector(".ed-flag:not(.ed-gap)");
+    area.addEventListener("input", function () {
+      var gaps = gapTexts(area.value);
+      bar.hidden = gaps.length === 0;
+      area.classList.toggle("gap-warn", gaps.length > 0);
+      if (rail) rail.classList.toggle("warn", gaps.length > 0 || hasOtherFlag);
+      if (count) count.textContent = gaps.length + " unresolved " + (gaps.length === 1 ? "gap" : "gaps");
+      if (list) {
+        list.textContent = "";
+        gaps.forEach(function (g) {
+          var li = document.createElement("li");
+          li.textContent = g;
+          list.appendChild(li);
+        });
+      }
+      updateGapSummary();
+    });
+    if (toggle && list) toggle.addEventListener("click", function () {
+      list.hidden = !list.hidden;
+      toggle.textContent = list.hidden ? "Show list" : "Hide list";
+    });
+    // Cycle the selection through the [GAP: ...] markers, wrapping after the
+    // last, so one button replaces a find-button per gap.
+    if (next) next.addEventListener("click", function () {
+      var v = area.value;
+      var s = v.indexOf("[GAP:", area.selectionEnd || 0);
+      if (s < 0) s = v.indexOf("[GAP:");
+      if (s < 0) return;
+      var close = v.indexOf("]", s), nl = v.indexOf("\n", s);
+      var end = close >= 0 && (nl < 0 || close < nl) ? close + 1 : (nl < 0 ? v.length : nl);
+      area.focus();
+      area.setSelectionRange(s, end);
+      area.scrollIntoView({ behavior: "smooth", block: "center" });
+    });
+  });
 `

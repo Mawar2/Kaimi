@@ -232,6 +232,18 @@ const workspaceContentTmpl = `{{define "content"}}
     </div>
     <div class="r-body">
       {{if .Doc}}
+      {{$gs := gapSummary .Doc.Sections}}
+      <div class="ed-flag ed-gap gap-summary" data-gapsummary{{if not $gs.Total}} hidden{{end}}>
+        <span class="ef-ic">` + iconWarn + `</span>
+        <div>
+          <b data-gapheadline>{{$gs.Headline}}</b>
+          <p>Tomás flagged facts he could not ground — fill each [GAP] marker before approving. The counts update as you edit.</p>
+          <ul class="gs-list">
+            {{range $gs.Sections}}<li data-sec="gsec-{{.ID}}"><a href="#gsec-{{.ID}}">{{.Heading}}</a><span class="gs-n">{{.Count}}</span></li>
+            {{end}}
+          </ul>
+        </div>
+      </div>
       <div class="r-sec-h">What Tomás produced</div>
       <div class="summary">Drafted {{len .Doc.Sections}} sections into the working draft — download the full Markdown or edit it inline below.</div>
       <div class="art-row">
@@ -262,19 +274,24 @@ const workspaceContentTmpl = `{{define "content"}}
 
       <div class="r-sec-h" style="margin-top:24px">Working draft — edit sections directly <span id="savechip" class="ed-save-chip">Saved</span> <a class="artifact2" href="/editor/{{.Opp.ID}}">` + iconDoc + `Open full editor</a></div>
       {{range .Doc.Sections}}
-      <section class="edsec">
+      {{$gaps := gapTexts .Body}}
+      <section class="edsec" id="gsec-{{.ID}}">
         <div class="sec-head2"><h3>{{.Heading}}</h3><span class="reqtag">{{.Status}}</span></div>
         <form method="POST" action="/workspace/{{$.Opp.ID}}/section/{{.ID}}" data-autosave>
-          <textarea name="body" rows="7"{{if gapTexts .Body}} class="gap-warn"{{end}}>{{.Body}}</textarea>
+          <textarea name="body" rows="7"{{if $gaps}} class="gap-warn"{{end}}>{{.Body}}</textarea>
           <noscript><button class="kbtn kbtn--secondary kbtn--sm" style="margin-top:6px">Save section</button></noscript>
         </form>
-        {{range gapTexts .Body}}
-        <div class="ed-flag ed-gap">
+        <div class="ed-flag ed-gap" data-gapbar{{if not $gaps}} hidden{{end}}>
           <span class="ef-ic">` + iconWarn + `</span>
-          <div><b>Unresolved gap</b><p>{{.}}</p></div>
-          <button type="button" class="kbtn kbtn--ghost kbtn--sm gap-jump" data-gap="{{.}}">Find in text</button>
+          <div>
+            <b data-gapcount>{{len $gaps}} unresolved gap{{if ne (len $gaps) 1}}s{{end}}</b>
+            <ul class="gap-list" data-gaplist hidden>
+              {{range $gaps}}<li>{{.}}</li>{{end}}
+            </ul>
+          </div>
+          <button type="button" class="kbtn kbtn--ghost kbtn--sm gap-toggle" data-gaptoggle>Show list</button>
+          <button type="button" class="kbtn kbtn--ghost kbtn--sm gap-next" data-gapnext>Next gap &rsaquo;</button>
         </div>
-        {{end}}
       </section>
       {{end}}
       {{else}}
@@ -395,21 +412,7 @@ const workspaceContentTmpl = `{{define "content"}}
       }, 900);
     });
   });
-  // Jump-to-gap: select the [GAP: ...] marker inside the section's textarea so
-  // the browser scrolls to it and the human sees exactly what is missing.
-  document.querySelectorAll(".gap-jump").forEach(function (b) {
-    b.addEventListener("click", function () {
-      var area = b.closest("section").querySelector("textarea");
-      if (!area) return;
-      var idx = area.value.indexOf(b.getAttribute("data-gap"));
-      var start = idx < 0 ? area.value.indexOf("[GAP:") : area.value.lastIndexOf("[GAP:", idx);
-      if (start < 0) return;
-      var end = area.value.indexOf("]", start);
-      area.focus();
-      area.setSelectionRange(start, end < 0 ? area.value.length : end + 1);
-      area.scrollIntoView({ behavior: "smooth", block: "center" });
-    });
-  });
+` + gapScriptJS + `
 </script>
 {{end}}
 `
