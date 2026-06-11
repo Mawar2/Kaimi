@@ -84,7 +84,7 @@ card state matches the workspace at each step. Re-check `:8907`/`:8913` parity (
 - [x] B1 workspace sidebar counts — fixed + test + verified (commit 7107c71)
 - [x] B2 cross-view state drift — fixed + test + verified (commit 64a278a)
 - [x] B3 draft.md/document.json artifacts — fixed + verified (commit 293921f)
-- [ ] B4 gate-action feedback + real redraft/review — fixed + verified
+- [~] B4 gate-action feedback — DONE + verified (commit 580ed57); "real redraft/review changes the draft" half rides on B5 (live agents)
 - [x] B6 criteria false-negative (keyword match + honest copy) — fixed + test + verified (commit 96c2250)
 - [ ] B5 live/no-stub failover (pr245 reuse) — landed + verified end-to-end
 - [ ] `make all` green (build + test + lint)
@@ -94,5 +94,6 @@ card state matches the workspace at each step. Re-check `:8907`/`:8913` parity (
 (append: date — what changed — commit — verify result)
 - 2026-06-11 — B1: extracted `fillShellCounts`, wired handleWorkspace + handleDetail. TDD red→green (TestWorkspaceSidebarShowsCounts). Full dashboard pkg green, gofmt/vet clean. Live verify on :8930: workspace sidebar now Opportunities 5 / Proposals 1, matching `/` and `/proposals` (was 0/0). commit 7107c71. Screenshot B1-workspace-sidebar-fixed.png.
 - 2026-06-11 — B2: added `ProposalStatus` to OpportunityRow, list now uses `proposalView(row.ProposalStatus)` (same as workspace), removed lossy `rowStatus`. TDD red→green (TestListAndWorkspaceAgreeOnState). Full pkg green, gofmt/vet clean. Live verify on :8930: an outline:failed proposal shows "Needs attention · Outline hit a problem" in BOTH list and workspace; contradiction strings ("Agents working"/"Tomás drafting now") absent. commit 64a278a. Screenshot B2-proposals-failed-consistent.png.
+- 2026-06-11 — B4 (feedback half): gate actions redirect with ?flash= marker; workspace renders a one-shot confirmation banner via gateFlashMessage + .ws-flash. TDD red→green (TestGateActionFeedback: redirect Location + banner). Full pkg green, gofmt/vet clean. Live verify on :8930: ?flash=changes shows "Sent back to Tomás…" banner. commit 580ed57. Screenshot B4-gate-feedback-banner.png. Real-redraft-changes-draft half tracked under B5.
 - 2026-06-11 — B3: added GET /workspace/{id}/draft.md (text/markdown attachment via handleDraftDownload), template now renders draft.md as a real download link and drops the document.json dead label. TDD red→green (TestDraftDownloadArtifact). Full pkg green, gofmt/vet clean. Live verify on :8930: endpoint returns 200 text/markdown, Content-Disposition attachment "90MC26R0004-draft.md", real draft body. commit 293921f.
 - 2026-06-11 — B6: replaced verbatim `strings.Contains` criteria check with significant-term overlap + light stemming (`requirementAddressed`/`stemTerm`), honest "could not auto-confirm" copy. TDD red→green: criteria_test.go (6-case table) + TestGateCriteriaMatchesParaphrase (renders gate: paraphrase=met, absent=honest copy). Full pkg green, gofmt/vet clean. Live browser verify deferred to B5 (reaching the gate needs live agents/creds); proven at unit+integration layer. commit 96c2250.
