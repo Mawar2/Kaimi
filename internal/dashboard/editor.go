@@ -1,0 +1,177 @@
+package dashboard
+
+import (
+	"fmt"
+	"net/http"
+
+	"github.com/Mawar2/Kaimi/internal/document"
+)
+
+// This file implements the full-page draft editor (the new Kaimi App.html
+// "editor" route, desktop-editor.jsx + editor.css): a focused, full-bleed
+// writing surface — a section rail on the left and the working draft on the
+// right, with inline gap callouts. It is a standalone page (no app shell) and
+// reuses the proposal Document plus the workspace's section autosave endpoint,
+// so editing the draft here is identical to editing it at the review gate.
+
+// EditorData is the view-model for GET /editor/{id}.
+type EditorData struct {
+	Title        string // page title
+	OppID        string
+	OppTitle     string
+	Meta         string // "DHS · CISA · SOL# … · click any paragraph to edit"
+	VersionLabel string
+	Sections     []EditorSection
+}
+
+// EditorSection is one editable section plus any gap flag attached to it.
+type EditorSection struct {
+	ID      string
+	Heading string
+	Status  string
+	Body    string
+	Flag    *document.Flag // non-nil when the section carries an open gap flag
+}
+
+// handleEditor renders the full-page draft editor for a selected proposal.
+func (h *Handler) handleEditor(w http.ResponseWriter, r *http.Request) {
+	if h.proposals == nil {
+		http.Error(w, "the editor is not enabled on this server", http.StatusServiceUnavailable)
+		return
+	}
+	id := r.PathValue("id")
+	if !opportunityIDPattern.MatchString(id) {
+		h.renderNotFound(w, id)
+		return
+	}
+	opp, err := h.svc.Get(r.Context(), id)
+	if err != nil {
+		h.renderNotFound(w, id)
+		return
+	}
+	doc, err := h.proposals.Document(id)
+	if err != nil || doc == nil {
+		h.renderNotFound(w, id)
+		return
+	}
+
+	// Index open flags by the section they belong to.
+	flagBySection := map[string]*document.Flag{}
+	for i := range doc.Flags {
+		f := &doc.Flags[i]
+		if f.Resolved || f.SectionID == "" {
+			continue
+		}
+		if _, seen := flagBySection[f.SectionID]; !seen {
+			flagBySection[f.SectionID] = f
+		}
+	}
+
+	data := EditorData{
+		Title:        "Editor — " + opp.Title,
+		OppID:        id,
+		OppTitle:     opp.Title,
+		VersionLabel: versionLabel(doc),
+	}
+	meta := opp.Agency
+	if opp.SolicitationNum != "" {
+		meta += " · SOL# " + opp.SolicitationNum
+	}
+	data.Meta = meta + " · click any section to edit"
+	for i := range doc.Sections {
+		s := &doc.Sections[i]
+		data.Sections = append(data.Sections, EditorSection{
+			ID: s.ID, Heading: s.Heading, Status: s.Status, Body: s.Body,
+			Flag: flagBySection[s.ID],
+		})
+	}
+
+	w.Header().Set("Content-Type", "text/html; charset=utf-8")
+	if err := h.editorTmpl.Execute(w, data); err != nil {
+		fmt.Printf("editor template failed: %v\n", err)
+	}
+}
+
+// editorPageTmpl is the standalone full-page editor — it deliberately does NOT
+// use the app shell (no sidebar); the design's "editor" route is a focused
+// full-bleed surface. Section edits autosave through the shared workspace
+// endpoint, so the draft stays identical to the review-gate view.
+const editorPageTmpl = `<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>Kaimi — {{.Title}}</title>
+  {{faviconLink}}
+  {{styleTag}}
+</head>
+<body>
+<div class="ed-fullpage route-fade">
+  <div class="ed">
+    <div class="ed-rail">
+      <div class="er-h">Sections</div>
+      {{range .Sections}}
+      <a class="ed-sec{{if .Flag}} warn{{end}}" href="#sec-{{.ID}}">{{.Heading}}</a>
+      {{end}}
+    </div>
+    <div class="ed-main">
+      <div class="ed-top">
+        <a class="kbtn kbtn--ghost kbtn--sm" href="/workspace/{{.OppID}}" style="text-decoration:none">` + iconBack + `Back to review</a>
+        <div class="ed-name">Working draft<span>{{.OppTitle}}</span></div>
+        <span class="ed-ver you">{{.VersionLabel}}</span>
+        <span id="edsave" class="ed-save">Saved</span>
+      </div>
+      <div class="ed-scroll">
+        <div class="ed-doc">
+          <div class="ed-title">{{.OppTitle}} — Technical Volume</div>
+          <div class="ed-meta">{{.Meta}}</div>
+          {{range .Sections}}
+          <section id="sec-{{.ID}}" class="edsec">
+            <div class="sec-head2"><h3>{{.Heading}}</h3>{{if .Status}}<span class="reqtag">{{.Status}}</span>{{end}}</div>
+            <form method="POST" action="/workspace/{{$.OppID}}/section/{{.ID}}" data-autosave>
+              <textarea name="body" rows="8">{{.Body}}</textarea>
+              <noscript><button class="kbtn kbtn--secondary kbtn--sm" style="margin-top:6px">Save section</button></noscript>
+            </form>
+            {{if .Flag}}
+            <div class="ed-flag">
+              <span class="ef-ic">` + iconWarn + `</span>
+              <div><b>{{.Flag.Title}}</b><p>{{.Flag.Detail}}</p></div>
+            </div>
+            {{end}}
+          </section>
+          {{end}}
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+<style>
+  .ed-rail .ed-sec{ display:block; text-decoration:none; color:inherit; }
+  .ed-main .ed-top .kbtn{ color:inherit; }
+  .edsec textarea{ width:100%; min-height:120px; font:var(--t-body); color:var(--ink); background:var(--surface); border:1px solid var(--border); border-radius:var(--r-md); padding:12px 14px; resize:vertical; box-sizing:border-box; }
+  .edsec textarea:focus{ outline:none; box-shadow:0 0 0 3px var(--ring-focus); border-color:var(--blue-300); }
+  .sec-head2{ display:flex; align-items:baseline; gap:9px; margin:0 0 7px; }
+  .sec-head2 h3{ font:650 15px/1.3 var(--font-sans); }
+  .sec-head2 .reqtag{ font:500 11px/1 var(--font-mono); color:var(--ink-4); }
+</style>
+<script>
+  // Debounced autosave — posts each edited section to the shared workspace
+  // endpoint so the draft.md mirror stays current (the one JS-enabled surface).
+  var chip = document.getElementById("edsave");
+  document.querySelectorAll("form[data-autosave]").forEach(function (f) {
+    var area = f.querySelector("textarea"); var timer;
+    if (!area) return;
+    area.addEventListener("input", function () {
+      if (chip) { chip.textContent = "Saving…"; chip.classList.add("saving"); }
+      clearTimeout(timer);
+      timer = setTimeout(function () {
+        fetch(f.action, { method:"POST", headers:{"Content-Type":"application/x-www-form-urlencoded"},
+          body: new URLSearchParams(new FormData(f)).toString(), redirect:"manual" })
+          .then(function (resp) { if (chip) { chip.textContent = (resp.type==="opaqueredirect"||resp.ok) ? "Saved" : "Save failed"; chip.classList.remove("saving"); } })
+          .catch(function () { if (chip) { chip.textContent = "Save failed"; chip.classList.remove("saving"); } });
+      }, 900);
+    });
+  });
+</script>
+</body>
+</html>
+`
