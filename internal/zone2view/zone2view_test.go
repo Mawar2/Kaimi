@@ -88,11 +88,11 @@ func TestRequirementAddressed(t *testing.T) {
 // paraphrased must-have reads as met (no note), and a genuinely-absent one
 // carries the honest "could not auto-confirm" copy — never asserted missing.
 func TestDeriveCriteria(t *testing.T) {
-	if DeriveCriteria(nil, "anything") != nil {
+	if DeriveCriteria(nil, "anything", nil) != nil {
 		t.Errorf("no requirements should yield nil criteria")
 	}
 	draft := "we deploy only fedramp high authorized tooling across the environment."
-	got := DeriveCriteria([]string{"FedRAMP High authorization", "ISO 27001 certification"}, draft)
+	got := DeriveCriteria([]string{"FedRAMP High authorization", "ISO 27001 certification"}, draft, nil)
 	if len(got) != 2 {
 		t.Fatalf("want 2 criteria, got %d", len(got))
 	}
@@ -101,5 +101,26 @@ func TestDeriveCriteria(t *testing.T) {
 	}
 	if got[1].OK || got[1].Note != "Kaimi could not auto-confirm this — verify in the draft" {
 		t.Errorf("absent must-have should carry honest copy, got %+v", got[1])
+	}
+}
+
+// TestDeriveCriteria_DefersToFlags proves the criteria grid never contradicts the
+// Final Review (tester-reported): when the review flags a must-have as not
+// addressed, the grid shows it not-addressed too — even if the lenient
+// term-overlap matcher would otherwise pass it. One source of truth at the gate.
+func TestDeriveCriteria_DefersToFlags(t *testing.T) {
+	// The draft contains the requirement's keywords, so RequirementAddressed
+	// (term-overlap) would return true — but the Final Review flagged it.
+	draft := "we deploy fedramp high authorized tooling across the environment."
+	flags := []string{`[must_have] requirement "FedRAMP High authorization" not addressed in draft`}
+	got := DeriveCriteria([]string{"FedRAMP High authorization"}, draft, flags)
+	if len(got) != 1 {
+		t.Fatalf("want 1 criterion, got %d", len(got))
+	}
+	if got[0].OK {
+		t.Errorf("a flagged must-have must show NOT addressed even when the matcher would pass, got %+v", got[0])
+	}
+	if got[0].Note == "" {
+		t.Errorf("a flagged must-have needs an explanatory note")
 	}
 }

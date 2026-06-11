@@ -324,7 +324,7 @@ func versionLabel(doc *document.Document) string {
 // (issue #246 B6): the old verbatim phrase match flagged any paraphrase as
 // absent, misleading the human exactly at the go/no-go gate.
 func deriveCriteria(opp *opportunity.Opportunity, doc *document.Document) []zone2view.Criterion {
-	return zone2view.DeriveCriteria(opp.Requirements, strings.ToLower(doc.Markdown()))
+	return zone2view.DeriveCriteria(opp.Requirements, strings.ToLower(doc.Markdown()), doc.OpenFlagTexts())
 }
 
 // handleAction dispatches the gate decisions and submit.

@@ -297,7 +297,7 @@ func (b *Backend) Workspace(ctx context.Context, oppID string) (WorkspaceResult,
 				ID: s.ID, Heading: s.Heading, Body: s.Body, Status: s.Status,
 			})
 		}
-		res.Criteria = zone2view.DeriveCriteria(opp.Requirements, strings.ToLower(doc.Markdown()))
+		res.Criteria = zone2view.DeriveCriteria(opp.Requirements, strings.ToLower(doc.Markdown()), doc.OpenFlagTexts())
 		for _, f := range doc.Flags {
 			if !f.Resolved {
 				res.OpenFlags = append(res.OpenFlags, WorkspaceFlag{Title: f.Title, Detail: f.Detail})
