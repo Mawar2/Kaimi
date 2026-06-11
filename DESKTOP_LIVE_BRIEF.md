@@ -71,7 +71,7 @@ phase, surface the architectural forks, don't guess.
 
 ## PROGRESS (loop updates every iteration)
 - [x] Tracking issue created with AC — Mawar2/Kaimi#249
-- [ ] Phase 0 baseline (frontend builds, desktop runs, bugs reproduced + recorded)
+- [x] Phase 0 baseline — frontend builds (npm ci + build → dist), `go build ./...` OK, desktop runs (vite :5173). Findings: B1 does NOT repro (SPA shares sidebar state, counts show on workspace); desktop artifacts are mock docx/xlsx (not draft.md/document.json); criteria/flags are mock text. Confirms: real fix = wire to live backend, not patch mock JSX. Screenshots DT-00..DT-03.
 - [ ] Phase 1 ★ integration architecture proposed + Malik signed off
 - [ ] Phase 2 desktop backend over live service (per-method, TDD)
 - [ ] Phase 3 Wails bindings
@@ -82,3 +82,4 @@ phase, surface the architectural forks, don't guess.
 
 ### Iteration log
 (append: date — what changed — commit — verify result)
+- 2026-06-11 — Phase 0: built frontend (npm ci, vite build → dist), `go build ./cmd/desktop` + `./...` now pass on Windows. Ran vite :5173, QA'd prototype (onboarding→opps→proposals→workspace gate). Baseline: desktop is mock below the opps list; B1 doesn't repro (SPA shared state), artifacts are mock docx/xlsx, criteria/flags mock. Build-fix needs no code change — dist must be built before `go build` (CI on linux skips desktop via build tag). Reached Phase 1 ★ — paused for Malik's architecture sign-off.
