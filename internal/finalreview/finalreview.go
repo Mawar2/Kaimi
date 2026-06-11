@@ -103,6 +103,7 @@ func (a *Agent) Review(ctx context.Context, in Input) (*agent.Result, error) {
 	var issues []string
 
 	issues = append(issues, checkMustHave(in.Draft, in.Opportunity.Requirements)...)
+	issues = append(issues, checkGaps(in.Draft)...)
 
 	if in.Outline != nil {
 		issues = append(issues, checkRequiredSections(in.Draft, in.Outline.Sections)...)
@@ -142,6 +143,49 @@ func (a *Agent) Review(ctx context.Context, in Input) (*agent.Result, error) {
 		Flags:       flags,
 		CompletedAt: time.Now().UTC(),
 	}, nil
+}
+
+// gapMarker mirrors writer.gapMarker: the placeholder the Writer is instructed
+// to emit instead of fabricating a fact that is missing from its grounding
+// inputs. The two constants must stay in sync (same precedent as internal/eval).
+const gapMarker = "[GAP:"
+
+// unknownSection labels a gap that appears before any "## " heading in the
+// draft, so the issue is still reportable when no section can be attributed.
+const unknownSection = "(unknown)"
+
+// checkGaps reports every unresolved Writer gap marker left in the draft.
+// Each occurrence becomes one issue anchored to the section heading it falls
+// under, so the human can jump straight to it. Gaps are soft issues: they
+// route the proposal to needs_human alongside the other checks, never failed.
+func checkGaps(draft string) []string {
+	var issues []string
+	section := unknownSection
+	for _, line := range strings.Split(draft, "\n") {
+		if heading, ok := strings.CutPrefix(line, "## "); ok {
+			section = strings.TrimSpace(heading)
+			continue
+		}
+		rest := line
+		for {
+			_, after, found := strings.Cut(rest, gapMarker)
+			if !found {
+				break
+			}
+			// The gap text runs to the marker's closing bracket; a marker the
+			// model left unclosed still flags, using the rest of the line.
+			gapText, remainder, closed := strings.Cut(after, "]")
+			if !closed {
+				remainder = ""
+			}
+			issues = append(issues, fmt.Sprintf(
+				"[unresolved_gap] section %q: missing fact — %q",
+				section, strings.TrimSpace(gapText),
+			))
+			rest = remainder
+		}
+	}
+	return issues
 }
 
 // checkDeadline returns an error if the opportunity's response deadline has
