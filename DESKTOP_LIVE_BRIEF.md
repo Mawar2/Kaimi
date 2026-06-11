@@ -70,7 +70,7 @@ phase, surface the architectural forks, don't guess.
 - Note merge-ordering: this branch depends on #247; flag conflicts/sequencing for the human.
 
 ## PROGRESS (loop updates every iteration)
-- [ ] Tracking issue created with AC
+- [x] Tracking issue created with AC — Mawar2/Kaimi#249
 - [ ] Phase 0 baseline (frontend builds, desktop runs, bugs reproduced + recorded)
 - [ ] Phase 1 ★ integration architecture proposed + Malik signed off
 - [ ] Phase 2 desktop backend over live service (per-method, TDD)
