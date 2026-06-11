@@ -35,17 +35,20 @@ function WPipe({ stageIndex, status }){
   );
 }
 
-function ReviewCard({ onApprove, onChanges, onOpenDraft }){
-  const R = KAIMI_REVIEW;
+function ReviewCard({ criteria, flags, summary, artifacts, onApprove, onChanges, onOpenDraft, onDownloadDraft }){
   const writer = KAIMI_AGENTS.writer;
   const hue = HUE[writer.hue];
+  // Criteria + flags come from the live view-model (internal/zone2view, B6); the
+  // bundled review mock is only the browser/demo fallback.
+  const crit = (criteria && criteria.length) ? criteria : KAIMI_REVIEW.criteria;
+  const flagList = flags || [];
   return (
     <div className="review">
       <div className="r-head">
         <span className="r-badge"><I.hand width={14} height={14}/>Needs you</span>
         <div>
           <h2>Tomás is handing you the draft</h2>
-          <p>{R.prompt}</p>
+          <p>{KAIMI_REVIEW.prompt}</p>
         </div>
         <div className="r-hand">
           <span className="av" style={{background:hue.bg, color:hue.fg}}>{writer.initial}</span>
@@ -55,7 +58,7 @@ function ReviewCard({ onApprove, onChanges, onOpenDraft }){
       </div>
       <div className="r-body">
         <div className="r-sec-h">What Tomás produced</div>
-        <div className="summary">{R.summary}</div>
+        <div className="summary">{summary || "Drafted the working technical volume — review it below, then download or edit any section."}</div>
         <div className="art-row">
           {onOpenDraft && (
             <a className="artifact2" href="#" style={{borderColor:"var(--blue-300)", color:"var(--blue-700)", fontWeight:600}}
@@ -64,22 +67,29 @@ function ReviewCard({ onApprove, onChanges, onOpenDraft }){
               Edit the draft
             </a>
           )}
-          {R.artifacts.map((a,i)=>(
+          {onDownloadDraft && (
+            <a className="artifact2" href="#" onClick={e=>{e.preventDefault(); onDownloadDraft();}}>
+              <I.doc/>Download draft.md
+            </a>
+          )}
+          {(artifacts || []).map((a,i)=>(
             <a className="artifact2" key={i} href="#" onClick={e=>e.preventDefault()}><I.doc/>{a.name}<span style={{color:"var(--ink-4)",fontFamily:"var(--font-mono)",fontSize:11}}>{a.meta}</span></a>
           ))}
         </div>
 
-        <div className="gapflag">
-          <div className="gf-ic"><I.warn/></div>
-          <div>
-            <div className="gf-t">{R.gap.title}</div>
-            <div className="gf-d">{R.gap.detail}</div>
+        {flagList.map((g,i)=>(
+          <div className="gapflag" key={i}>
+            <div className="gf-ic"><I.warn/></div>
+            <div>
+              <div className="gf-t">{g.title}</div>
+              <div className="gf-d">{g.detail}</div>
+            </div>
           </div>
-        </div>
+        ))}
 
         <div className="r-sec-h" style={{marginTop:24}}>Check against criteria</div>
         <div className="crit2">
-          {R.criteria.map((c,i)=>(
+          {crit.map((c,i)=>(
             <div className={`citem ${c.state}`} key={i}>
               <span className="ci-ic">{c.state==="ok"?<I.check/>:<I.warn/>}</span>
               <div><div className="ci-l">{c.label}</div>{c.note && <div className="ci-n">{c.note}</div>}</div>
@@ -141,7 +151,7 @@ function SubmittedState(){
   );
 }
 
-function WorkspaceScreen({ p, onBack, onApprove, onChanges, onSubmit, onOpenDraft }){
+function WorkspaceScreen({ p, onBack, onApprove, onChanges, onSubmit, onOpenDraft, onDownloadDraft }){
   if(!p) return null;
   const agentKeyFor = (i)=> i===0?"outline":i===1?"writer":i===3?"review":"writer";
   return (
@@ -155,14 +165,16 @@ function WorkspaceScreen({ p, onBack, onApprove, onChanges, onSubmit, onOpenDraf
             <span>{p.agency}</span><span className="sep"></span>
             <DeadlinePill label={p.deadlineLabel} level={p.deadlineLevel} />
             <span className="sep"></span>
-            <span>{p.status==="human" ? "Paused for your review" : p.status==="done" ? "Ready to submit" : p.status==="submitted" ? "Submitted" : p.status==="queued" ? "Queued — syncs when online" : `${KAIMI_STAGE_NAMES[p.stageIndex]} in progress`}</span>
+            <span>{p.phrase || (p.status==="human" ? "Paused for your review" : p.status==="done" ? "Ready to submit" : p.status==="submitted" ? "Submitted" : p.status==="queued" ? "Queued — syncs when online" : `${KAIMI_STAGE_NAMES[p.stageIndex]} in progress`)}</span>
           </div>
         </div>
       </div>
 
       <WPipe stageIndex={p.stageIndex} status={p.status} />
 
-      {p.status==="human" && <ReviewCard onApprove={()=>onApprove(p)} onChanges={()=>onChanges(p)} onOpenDraft={onOpenDraft ? ()=>onOpenDraft(p) : undefined} />}
+      {p.status==="human" && <ReviewCard criteria={p.criteria} flags={p.flags} summary={p.summary} artifacts={p.artifacts}
+        onApprove={()=>onApprove(p)} onChanges={()=>onChanges(p)}
+        onOpenDraft={onOpenDraft ? ()=>onOpenDraft(p) : undefined} onDownloadDraft={onDownloadDraft} />}
       {p.status==="progress" && <WorkingState agentKey={agentKeyFor(p.stageIndex)} stageIndex={p.stageIndex} />}
       {p.status==="done" && <ReadyState onSubmit={()=>onSubmit(p)} />}
       {p.status==="submitted" && <SubmittedState />}
