@@ -128,11 +128,11 @@ func TestLiveClient_PaginationAdvancesOffset(t *testing.T) {
 			for i := range records {
 				records[i] = fmt.Sprintf(record, i)
 			}
-			fmt.Fprintf(w, `{"totalRecords":%d,"opportunitiesData":[%s]}`, limit+1, strings.Join(records, ","))
+			_, _ = fmt.Fprintf(w, `{"totalRecords":%d,"opportunitiesData":[%s]}`, limit+1, strings.Join(records, ","))
 			return
 		}
 		// Second page is short -> the loop must terminate.
-		fmt.Fprintf(w, `{"totalRecords":0,"opportunitiesData":[]}`)
+		_, _ = fmt.Fprintf(w, `{"totalRecords":0,"opportunitiesData":[]}`)
 	}))
 	defer server.Close()
 
