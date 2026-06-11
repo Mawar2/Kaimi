@@ -474,7 +474,7 @@ body{ background: var(--app-bg); color: var(--ink); }
 /* stat strip (minimal) */
 .stats{ display:flex; gap:40px; margin-top:24px; flex-wrap:wrap; }
 .stat .v{ font:700 30px/1 var(--font-sans); letter-spacing:-0.02em; }
-.stat .v small{ font-size:15px; color:var(--ink-4); font-weight:600; margin-left:2px; }
+.stat .v small{ font-size:15px; color:var(--ink-4); font-weight:600; margin-left:2px; white-space:nowrap; }
 .stat .k{ font-size:13px; color:var(--ink-soft); margin-top:7px; }
 .stat .v.amber{ color:var(--st-human); }
 
@@ -513,6 +513,70 @@ body{ background: var(--app-bg); color: var(--ink); }
 .orow .chev{ width:18px;height:18px;color:var(--ink-4); flex:none; }
 .orow .rec-min{ font:700 12px/1 var(--font-sans); text-transform:uppercase; letter-spacing:0.05em; white-space:nowrap; }
 .rec-min--bid{ color:var(--rec-bid); } .rec-min--nobid{ color:var(--rec-nobid); } .rec-min--review{ color:var(--rec-review); }
+
+/* ---------------- search box (toolbar) ---------------- */
+.searchbox{ display:flex; align-items:center; gap:9px; height:38px; padding:0 13px; border-radius:var(--r-md);
+  border:1px solid var(--line); background:#fff; min-width:300px;
+  transition:border-color var(--m-fast), box-shadow var(--m-fast); }
+.searchbox:focus-within{ border-color:var(--blue-300); box-shadow:0 0 0 3px var(--ring-focus); }
+.searchbox svg{ width:15px; height:15px; color:var(--ink-4); flex:none; }
+.searchbox input{ border:0; outline:none; background:transparent; font:500 13.5px/1 var(--font-sans); color:var(--ink); width:100%; }
+.searchbox input::placeholder{ color:var(--ink-4); }
+
+/* ---------------- submitted archive rows ---------------- */
+.sub-list{ display:flex; flex-direction:column; gap:10px; }
+.srow{ background:#fff; border:1px solid var(--line); border-radius:var(--r-lg); overflow:hidden;
+  transition:border-color var(--m-base) var(--ease), box-shadow var(--m-base); }
+.srow:hover{ border-color:var(--blue-200); }
+.srow.open{ border-color:var(--blue-200); box-shadow:var(--e-2); }
+.srow.justnow{ border-color:color-mix(in oklab,var(--st-done) 38%,transparent); }
+.srow-head{ display:flex; align-items:center; gap:18px; padding:16px 20px; cursor:pointer; }
+.srow-head:focus-visible{ outline:none; box-shadow:inset 0 0 0 3px var(--ring-focus); }
+.srow .s-body{ flex:1; min-width:0; }
+.srow .sttl{ font:600 15.5px/1.3 var(--font-sans); letter-spacing:-0.01em; }
+.srow .smeta{ display:flex; align-items:center; gap:9px; margin-top:5px; color:var(--ink-soft); font-size:12.5px; flex-wrap:wrap; }
+.srow .smeta .sep{ width:3px;height:3px;border-radius:50%;background:var(--ink-4); flex:none; }
+.srow .smeta .mono{ font-family:var(--font-mono); font-size:11.5px; color:var(--ink-4); }
+.srow .s-right{ display:flex; align-items:center; gap:16px; flex:none; }
+.srow .sval{ font:600 14px/1 var(--font-mono); color:var(--ink); min-width:52px; text-align:right; }
+.srow .schev{ width:18px; height:18px; color:var(--ink-4); flex:none; transition:transform var(--m-base) var(--ease); }
+.srow .schev.up{ transform:rotate(180deg); }
+.srow-docs{ padding:14px 20px 18px; border-top:1px dashed var(--line); animation:routeIn .24s var(--ease) both; }
+.srow-docs .sd-note{ font:500 12.5px/1 var(--font-sans); color:var(--ink-soft); }
+.srow-docs .sd-h{ font:600 11px/1 var(--font-sans); text-transform:uppercase; letter-spacing:0.09em; color:var(--ink-4); margin-top:14px; }
+.kbadge--muted{ color:var(--ink-4); background:var(--n-100); border-color:var(--n-200); }
+.srow-docs .sd-grid{ display:grid; grid-template-columns:1fr 280px; gap:24px; margin-top:14px; align-items:start; }
+.srow-docs .sd-grid .sd-h{ margin-top:0; }
+.sd-outcome .sd-hint{ font:450 11.5px/1.5 var(--font-sans); color:var(--ink-4); margin-top:10px; }
+@media (max-width:980px){ .srow-docs .sd-grid{ grid-template-columns:1fr; } }
+
+/* ---------------- export report dialog ---------------- */
+.xscrim{ position:fixed; inset:0; z-index:60; background:rgba(7,16,38,0.42); display:grid; place-items:center;
+  animation:xFade .2s var(--ease) both; }
+@keyframes xFade{ from{opacity:0;} to{opacity:1;} }
+.xmodal{ width:480px; max-width:calc(100vw - 48px); background:#fff; border-radius:var(--r-xl, 20px);
+  box-shadow:var(--e-4, 0 24px 64px rgba(7,16,38,0.28)); padding:28px 28px 24px; animation:routeIn .26s var(--ease) both; }
+.xmodal h3{ font:700 19px/1.2 var(--font-sans); letter-spacing:-0.01em; margin:0; }
+.xmodal > p{ font:450 13.5px/1.55 var(--font-sans); color:var(--ink-soft); margin:8px 0 0; }
+.x-periods{ display:grid; grid-template-columns:repeat(auto-fit, minmax(120px,1fr)); gap:8px; margin-top:18px; }
+.x-period{ border:1px solid var(--line); background:#fff; border-radius:var(--r-md); padding:10px 12px; cursor:pointer;
+  font:600 12.5px/1.2 var(--font-sans); color:var(--ink-2); text-align:left; transition:all var(--m-fast); }
+.x-period:hover{ border-color:var(--blue-200); }
+.x-period.on{ border-color:var(--blue-400, var(--blue-300)); background:var(--blue-50); color:var(--blue-700); box-shadow:0 0 0 1px var(--blue-300) inset; }
+.x-qh{ font:550 11.5px/1.4 var(--font-sans); color:var(--ink-4); margin-top:16px; }
+.x-qh b{ color:var(--blue-700); font-weight:700; }
+.x-qstrip{ display:flex; gap:6px; flex-wrap:wrap; margin-top:8px; }
+.x-q{ border:1px solid var(--line); background:#fff; border-radius:var(--r-pill); padding:7px 12px; cursor:pointer;
+  font:600 12px/1 var(--font-mono); color:var(--ink-3); transition:all var(--m-fast); }
+.x-q:hover{ border-color:var(--blue-200); color:var(--ink); }
+.x-q.on{ background:var(--blue-50); border-color:var(--blue-300); color:var(--blue-700); }
+.x-q.anchor{ box-shadow:0 0 0 2px var(--blue-300); }
+.x-metrics{ display:grid; grid-template-columns:repeat(4,1fr); gap:8px; margin-top:14px;
+  background:var(--n-50); border:1px solid var(--line); border-radius:var(--r-lg); padding:14px 16px; }
+.x-metrics .xm b{ display:block; font:700 19px/1 var(--font-sans); letter-spacing:-0.01em; }
+.x-metrics .xm span{ display:block; font:550 10.5px/1 var(--font-sans); text-transform:uppercase; letter-spacing:0.07em; color:var(--ink-4); margin-top:6px; }
+.x-actions{ display:flex; justify-content:flex-end; gap:10px; margin-top:20px; }
+
 
 /* ---------------- proposal cards (active) ---------------- */
 .prop-grid{ display:flex; flex-direction:column; gap:12px; }
@@ -677,6 +741,74 @@ body{ background: var(--app-bg); color: var(--ink); }
 .dr-actions{ display:flex; align-items:center; gap:12px; padding:18px 24px; border-top:1px solid var(--line); }
 `
 
+// editorStylesCSS is kaimi/editor.css from the updated handoff: the full-page
+// draft editor shell (.ed-fullpage, .ed-rail section list, .ed-doc editable
+// sections, .ed-flag gap callouts). Emitted by StyleTag so the editor route is
+// styled like every other surface.
+const editorStylesCSS = `
+/* app-shell route motion — from Kaimi App.html root <style>; ported here so
+   StyleTag carries it on every page (shell + the non-shell editor route).
+   .srow-docs and .xmodal reference @keyframes routeIn. */
+#root{ min-height:100vh; }
+.route-fade{ animation: routeIn .28s var(--ease) both; }
+@keyframes routeIn{ from{ transform:translateY(6px); } to{ transform:none; } }
+
+/* ============================================================
+   KAIMI — Working-draft editor styles (web)
+   Mirror of the editor section in desktop.css — keep in sync.
+   ============================================================ */
+.ed-fullpage{ height:100vh; }
+
+/* ============================================================
+   DRAFT EDITOR
+   ============================================================ */
+.ed{ display:grid; grid-template-columns:252px 1fr; height:100%; min-height:0; }
+.ed-rail{ border-right:1px solid var(--line, rgba(16,30,60,0.08)); background:#fff; overflow-y:auto; padding:14px 12px; }
+.ed-rail .er-h{ font:600 11px/1 var(--font-sans); text-transform:uppercase; letter-spacing:0.09em; color:var(--ink-4); padding:8px 10px 10px; }
+.ed-sec{ display:flex; align-items:flex-start; gap:10px; width:100%; text-align:left; padding:9px 10px; border-radius:var(--r-md);
+  border:0; background:transparent; cursor:pointer; transition:background var(--m-fast); }
+.ed-sec:hover{ background:var(--n-50); }
+.ed-sec.cur{ background:var(--blue-50); }
+.ed-sec .dot{ width:8px; height:8px; border-radius:50%; margin-top:5px; flex:none; background:var(--st-done); }
+.ed-sec.warn .dot{ background:var(--st-human); box-shadow:0 0 0 3px var(--st-human-bg); }
+.ed-sec b{ font:600 13px/1.35 var(--font-sans); color:var(--ink-2); display:block; }
+.ed-sec.cur b{ color:var(--blue-700); }
+.ed-sec .sub{ font:500 11px/1 var(--font-mono); color:var(--ink-4); display:block; margin-top:4px; }
+
+.ed-main{ display:flex; flex-direction:column; min-width:0; min-height:0; }
+.ed-top{ flex:none; display:flex; align-items:center; gap:14px; padding:12px 22px; border-bottom:1px solid var(--line, rgba(16,30,60,0.08)); background:#fff; }
+.ed-top .ed-name{ font:650 14.5px/1.2 var(--font-sans); }
+.ed-top .ed-name span{ display:block; font:500 11.5px/1 var(--font-mono); color:var(--ink-4); margin-top:4px; }
+.ed-ver{ display:inline-flex; align-items:center; gap:6px; height:26px; padding:0 11px; border-radius:var(--r-pill);
+  background:var(--n-100); font:600 12px/1 var(--font-sans); color:var(--ink-2); white-space:nowrap; }
+.ed-ver.you{ background:var(--blue-50); color:var(--blue-700); }
+.ed-save{ font:550 12px/1 var(--font-sans); color:var(--ink-4); display:inline-flex; align-items:center; gap:6px; white-space:nowrap; }
+.ed-save .sdot{ width:7px; height:7px; border-radius:50%; background:var(--st-done); }
+.ed-save.saving .sdot{ background:var(--st-progress); animation:kBlink 0.9s infinite; }
+.ed-scroll{ flex:1; overflow-y:auto; padding:30px 22px 80px; background:var(--app-bg, #FBFCFE); }
+.ed-doc{ max-width:740px; margin:0 auto; background:#fff; border:1px solid var(--line, rgba(16,30,60,0.08));
+  border-radius:var(--r-lg); box-shadow:var(--e-2); padding:52px 58px 64px; }
+.ed-doc .ed-title{ font:750 23px/1.25 var(--font-sans); letter-spacing:-0.015em; }
+.ed-doc .ed-meta{ font:500 11.5px/1.6 var(--font-mono); color:var(--ink-4); margin-top:8px; padding-bottom:22px; border-bottom:1px solid var(--line, rgba(16,30,60,0.08)); }
+.ed-doc section{ margin-top:30px; }
+.ed-doc .sec-head2{ display:flex; align-items:baseline; gap:10px; }
+.ed-doc h3{ font:700 16px/1.3 var(--font-sans); color:var(--ink); }
+.ed-doc h3 .no{ color:var(--cyan-600); font-family:var(--font-mono); font-weight:600; font-size:13px; margin-right:8px; }
+.ed-doc .reqtag{ margin-left:auto; font:500 10.5px/1 var(--font-mono); color:var(--ink-4); background:var(--n-50);
+  border:1px solid var(--line, rgba(16,30,60,0.08)); padding:4px 8px; border-radius:var(--r-pill); white-space:nowrap; flex:none; }
+.ed-doc [contenteditable]{ font:450 14.5px/1.75 var(--font-sans); color:var(--ink-2); margin-top:10px; outline:none;
+  border-radius:6px; transition:box-shadow var(--m-fast); }
+.ed-doc [contenteditable] p{ margin:0 0 12px; }
+.ed-doc [contenteditable]:hover{ box-shadow:0 0 0 6px var(--n-25), 0 0 0 7px var(--n-200); }
+.ed-doc [contenteditable]:focus{ box-shadow:0 0 0 6px var(--n-25), 0 0 0 7px var(--cyan-300); color:var(--ink); }
+.ed-flag{ display:flex; gap:12px; margin-top:14px; padding:13px 15px; border-radius:var(--r-md);
+  background:var(--st-human-bg); border:1px solid color-mix(in oklab,var(--st-human) 32%,transparent); }
+.ed-flag .ef-ic{ width:30px; height:30px; border-radius:9px; flex:none; display:grid; place-items:center;
+  background:color-mix(in oklab,var(--st-human) 20%,transparent); color:var(--st-human); }
+.ed-flag b{ font:650 13px/1.35 var(--font-sans); color:color-mix(in oklab,var(--st-human) 75%,black); display:block; }
+.ed-flag p{ font:450 12.5px/1.5 var(--font-sans); color:var(--ink-soft); margin:3px 0 0; }
+`
+
 // StyleTag renders the complete Kaimi design system — tokens plus component
 // classes — as a single inline <style> element for a page's <head>. This is
 // the one place visual values are defined; see the file comment for the rules.
@@ -684,5 +816,5 @@ func StyleTag() template.HTML {
 	// #nosec G203 -- constant stylesheets plus base64-embedded fonts, no user input.
 	// fontFaceCSS is emitted first so the @font-face declarations exist before any
 	// rule references --font-sans / --font-mono.
-	return template.HTML("<style>" + fontFaceCSS + designTokensCSS + componentStylesCSS + appStylesCSS + "</style>")
+	return template.HTML("<style>" + fontFaceCSS + designTokensCSS + componentStylesCSS + appStylesCSS + editorStylesCSS + "</style>")
 }

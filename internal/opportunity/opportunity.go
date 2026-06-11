@@ -57,6 +57,13 @@ type Opportunity struct {
 	SelectedAt     *time.Time `json:"selected_at,omitempty"` // When selected
 	ProposalStatus string     `json:"proposal_status"`       // Current status in Zone 2 (e.g., "outline", "draft", "review")
 
+	// Award tracking + contract value, surfaced by the Submitted archive screen.
+	// All additive and omitempty, so the JSON store needs no migration and older
+	// records simply omit them (the UI degrades to "—" / UpdatedAt / pending).
+	EstimatedValue float64    `json:"estimated_value,omitempty"` // contract value in US dollars (0 = unknown)
+	SubmittedAt    *time.Time `json:"submitted_at,omitempty"`    // when the human submitted to SAM.gov
+	AwardOutcome   string     `json:"award_outcome,omitempty"`   // "" (pending) | "won" | "lost"
+
 	// Solicitation documents (populated by the Manager's ingest stage in Zone 2)
 	//
 	// Attachments (above) holds the original SAM.gov attachment URLs the Hunter

@@ -259,7 +259,7 @@ const workspaceContentTmpl = `{{define "content"}}
       </div>
       {{end}}
 
-      <div class="r-sec-h" style="margin-top:24px">Working draft — edit sections directly <span id="savechip" class="ed-save-chip">Saved</span></div>
+      <div class="r-sec-h" style="margin-top:24px">Working draft — edit sections directly <span id="savechip" class="ed-save-chip">Saved</span> <a class="artifact2" href="/editor/{{.Opp.ID}}">` + iconDoc + `Open full editor</a></div>
       {{range .Doc.Sections}}
       <section class="edsec">
         <div class="sec-head2"><h3>{{.Heading}}</h3><span class="reqtag">{{.Status}}</span></div>

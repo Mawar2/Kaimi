@@ -481,3 +481,31 @@ func TestTriageScreen(t *testing.T) {
 		}
 	})
 }
+
+// TestSidebarHasSubmittedNav verifies the new third sidebar nav item (the
+// Submitted archive) renders on the shared app shell with its archive icon and
+// active-state wiring (new Kaimi App.html design).
+func TestSidebarHasSubmittedNav(t *testing.T) {
+	s, err := store.NewJSONStore(t.TempDir())
+	if err != nil {
+		t.Fatalf("store: %v", err)
+	}
+	now := time.Date(2026, 6, 9, 12, 0, 0, 0, time.UTC)
+	if err := s.Save(context.Background(), &opportunity.Opportunity{
+		ID: "o1", Title: "Sample", Agency: "GSA", UpdatedAt: now,
+	}); err != nil {
+		t.Fatalf("seed: %v", err)
+	}
+	h := dashboard.NewHandler(dashboard.NewService(s))
+	h.Now = func() time.Time { return now }
+	rr := httptest.NewRecorder()
+	h.ServeHTTP(rr, httptest.NewRequest("GET", "/", http.NoBody))
+	body := rr.Body.String()
+	if !contains(body, `href="/submitted"`) || !contains(body, "<span>Submitted</span>") {
+		t.Errorf("shell sidebar must render the Submitted nav item, got:\n%s", body[:min(800, len(body))])
+	}
+	// The template action must be rendered, not emitted literally.
+	if contains(body, "ActiveNav") {
+		t.Errorf("unrendered template action leaked into output")
+	}
+}
