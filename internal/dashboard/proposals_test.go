@@ -289,6 +289,41 @@ func TestListAndWorkspaceAgreeOnState(t *testing.T) {
 	}
 }
 
+// TestGateActionFeedback proves the gate decisions give the human visible
+// confirmation (issue #246 B4): Request changes / Approve redirect with a flash
+// marker and the workspace renders a confirmation banner, so the action never
+// reads as "nothing happened" (the stub writer's invisible redraft made it look
+// like a no-op).
+func TestGateActionFeedback(t *testing.T) {
+	h, svc, _ := newProposalHandler(t)
+	postForm(t, h, "/opportunity/zta-1/select", url.Values{})
+	svc.Wait() // reaches the gate
+
+	rr := postForm(t, h, "/workspace/zta-1/changes", url.Values{"note": {"Tighten it."}})
+	if rr.Code != http.StatusSeeOther {
+		t.Fatalf("changes: status %d, want 303", rr.Code)
+	}
+	if loc := rr.Header().Get("Location"); loc != "/workspace/zta-1?flash=changes" {
+		t.Errorf("changes redirect = %q, want /workspace/zta-1?flash=changes", loc)
+	}
+	svc.Wait()
+
+	body := get(t, h, "/workspace/zta-1?flash=changes")
+	if !contains(body, "Sent back to Tom") { // "Sent back to Tomás…"
+		t.Errorf("workspace should show a confirmation banner after request-changes")
+	}
+
+	// Approve also confirms (Vera is reviewing).
+	rr = postForm(t, h, "/workspace/zta-1/approve", url.Values{})
+	if rr.Code != http.StatusSeeOther {
+		t.Fatalf("approve: status %d, want 303", rr.Code)
+	}
+	if loc := rr.Header().Get("Location"); loc != "/workspace/zta-1?flash=approve" {
+		t.Errorf("approve redirect = %q, want /workspace/zta-1?flash=approve", loc)
+	}
+	svc.Wait() // let the final-review goroutine finish before TempDir cleanup
+}
+
 // TestDraftDownloadArtifact proves the gate surfaces the working draft as a
 // real, downloadable artifact rather than dead "draft.md"/"document.json" labels
 // (issue #246 B3): the workspace links draft.md to a download endpoint that

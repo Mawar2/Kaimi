@@ -151,6 +151,25 @@ type WorkspaceData struct {
 	OpenFlags     []document.Flag
 	VersionLabel  string
 	AtGate        bool
+	// Flash is a one-shot confirmation banner shown after a gate action
+	// (issue #246 B4), derived from the ?flash= redirect marker.
+	Flash string
+}
+
+// gateFlashMessage maps a ?flash= redirect marker to the confirmation banner the
+// workspace shows after a gate action, so Request changes / Approve / Submit
+// never read as "nothing happened".
+func gateFlashMessage(flash string) string {
+	switch flash {
+	case "changes":
+		return "Sent back to Tomás — he will revise the draft and return it to you."
+	case "approve":
+		return "Approved — Vera is running the final review on your draft."
+	case "submit":
+		return "Submitted to SAM.gov."
+	default:
+		return ""
+	}
 }
 
 // CritItem is one check on the gate's criteria grid, derived from the
@@ -298,6 +317,7 @@ func (h *Handler) handleWorkspace(w http.ResponseWriter, r *http.Request) {
 		AtGate:     state == "human",
 	}
 	data.AgentLine = agentLines[agentKeyFor(stageIndex)]
+	data.Flash = gateFlashMessage(r.URL.Query().Get("flash"))
 	// The sidebar shows the same queue/needs/active counts here as on every
 	// other page (issue #246 B1).
 	h.fillShellCounts(r.Context(), &data.shellData, now)
@@ -463,7 +483,9 @@ func (h *Handler) handleAction(action string) http.HandlerFunc {
 			http.Error(w, err.Error(), http.StatusConflict)
 			return
 		}
-		http.Redirect(w, r, "/workspace/"+id, http.StatusSeeOther)
+		// Redirect with a flash marker so the workspace confirms the action
+		// (issue #246 B4); action is one of the validated literals above.
+		http.Redirect(w, r, "/workspace/"+id+"?flash="+action, http.StatusSeeOther)
 	}
 }
 
