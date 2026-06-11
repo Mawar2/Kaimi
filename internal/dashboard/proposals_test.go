@@ -180,6 +180,34 @@ func TestRequestChangesOverHTTP(t *testing.T) {
 	}
 }
 
+// TestWorkspaceSidebarShowsCounts proves the workspace page populates the
+// shared sidebar counts (issue #246 B1). The bug: handleWorkspace built
+// shellData with only PageTitle/ActiveNav, so the Opportunities and Proposals
+// nav badges rendered 0 on the workspace even though /, /opportunity, and
+// /proposals all show the real counts. The fix routes every page through one
+// shell-count helper so the sidebar never drifts between views.
+func TestWorkspaceSidebarShowsCounts(t *testing.T) {
+	h, svc, _ := newProposalHandler(t)
+	if rr := postForm(t, h, "/opportunity/zta-1/select", url.Values{}); rr.Code != http.StatusSeeOther {
+		t.Fatalf("select: status %d, want 303", rr.Code)
+	}
+	svc.Wait() // the draft pipeline runs to the human gate
+
+	body := get(t, h, "/workspace/zta-1")
+	// One opportunity in the queue → the Opportunities nav count is 1, not 0.
+	if !contains(body, `<span class="count">1</span>`) {
+		t.Errorf("workspace sidebar should show the queue count (1), got a zeroed nav")
+	}
+	// At the gate the proposal awaits human review → the Proposals amber badge.
+	if !contains(body, `<span class="needs">1</span>`) {
+		t.Errorf("workspace sidebar should show the needs-review badge (1)")
+	}
+	// Regression guard: no nav count should render as a hard zero here.
+	if contains(body, `<span class="count">0</span>`) {
+		t.Errorf("workspace sidebar still rendering a zeroed nav count")
+	}
+}
+
 // TestProposalCardsResetLinkStyling proves the whole-card <a class="pcard">
 // link gets the same text-decoration/color reset the other card and nav links
 // get (issue #207). Without it the proposal cards render as default underlined

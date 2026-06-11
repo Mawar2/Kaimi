@@ -1,6 +1,7 @@
 package dashboard
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"html/template"
@@ -406,6 +407,29 @@ type shellData struct {
 	ActiveCount int    // opportunities selected into proposal work
 }
 
+// fillShellCounts populates the sidebar's queue/needs/active counts from the
+// unfiltered opportunity queue. Every page that renders the shell calls this
+// so the sidebar reads the same on the workspace as it does on the overview
+// and proposals views — the workspace used to skip it and showed 0/0
+// (issue #246 B1). A list error leaves the counts at zero rather than failing
+// the page; the sidebar is chrome, not the page's reason for being.
+func (h *Handler) fillShellCounts(ctx context.Context, sd *shellData, now time.Time) {
+	all, err := h.svc.List(ctx, ListOptions{Now: now})
+	if err != nil {
+		return
+	}
+	sd.QueueCount = len(all)
+	for i := range all {
+		switch all[i].Stage {
+		case StageAwaitingHumanReview:
+			sd.NeedsCount++
+			sd.ActiveCount++
+		case StageSelected, StageInProposal, StageFinalized:
+			sd.ActiveCount++
+		}
+	}
+}
+
 // OverviewData is the view-model for the Triage screen.
 type OverviewData struct {
 	shellData
@@ -648,18 +672,7 @@ func (h *Handler) handleDetail(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Shell counts for the sidebar.
-	if all, err := h.svc.List(r.Context(), ListOptions{Now: now}); err == nil {
-		data.QueueCount = len(all)
-		for i := range all {
-			switch all[i].Stage {
-			case StageAwaitingHumanReview:
-				data.NeedsCount++
-				data.ActiveCount++
-			case StageSelected, StageInProposal, StageFinalized:
-				data.ActiveCount++
-			}
-		}
-	}
+	h.fillShellCounts(r.Context(), &data.shellData, now)
 
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	if err := h.detailTmpl.Execute(w, data); err != nil {
