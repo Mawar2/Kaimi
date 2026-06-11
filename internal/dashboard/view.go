@@ -97,7 +97,7 @@ func NewService(s store.Store) *Service {
 // Score filtering is delegated to store.Filter (store-side, efficient).
 // Stage filtering is applied in Go after retrieval because Stage is derived
 // from field values and is not a stored field.
-func (svc *Service) List(ctx context.Context, opts ListOptions) ([]OpportunityRow, error) {
+func (svc *Service) List(ctx context.Context, opts ListOptions) ([]OpportunityRow, error) { //nolint:gocritic // ListOptions is a small read-only options struct; value semantics are intentional
 	opps, err := svc.store.List(ctx, &store.Filter{MinScore: opts.MinScore})
 	if err != nil {
 		return nil, fmt.Errorf("dashboard list: %w", err)
