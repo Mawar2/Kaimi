@@ -62,6 +62,32 @@ func StatusPhrase(stageIndex int, state string) string {
 	return StageNames[stageIndex] + " in progress"
 }
 
+// Criterion is one must-have requirement checked against the current draft. It
+// is the shared view-model for the gate's criteria grid on both web and desktop.
+type Criterion struct {
+	Label string `json:"label"`
+	Note  string `json:"note"`
+	OK    bool   `json:"ok"`
+}
+
+// DeriveCriteria checks each requirement against the draft (which must already be
+// lowercased) using RequirementAddressed. An unconfirmed item carries honest copy
+// — it is never asserted missing (issue #246 B6). Returns nil for no requirements.
+func DeriveCriteria(requirements []string, draftLower string) []Criterion {
+	if len(requirements) == 0 {
+		return nil
+	}
+	items := make([]Criterion, 0, len(requirements))
+	for _, req := range requirements {
+		c := Criterion{Label: req, OK: RequirementAddressed(draftLower, req)}
+		if !c.OK {
+			c.Note = "Kaimi could not auto-confirm this — verify in the draft"
+		}
+		items = append(items, c)
+	}
+	return items
+}
+
 // requirementStopwords are common words dropped before term matching so the
 // signal comes from the requirement's meaningful terms, not filler.
 var requirementStopwords = map[string]bool{

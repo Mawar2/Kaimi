@@ -97,7 +97,7 @@ type WorkspaceData struct {
 	DeadlineDays  int
 	Agent         agentIdentity
 	AgentLine     string
-	Criteria      []CritItem
+	Criteria      []zone2view.Criterion
 	OpenFlags     []document.Flag
 	VersionLabel  string
 	AtGate        bool
@@ -120,14 +120,6 @@ func gateFlashMessage(flash string) string {
 	default:
 		return ""
 	}
-}
-
-// CritItem is one check on the gate's criteria grid, derived from the
-// opportunity's must-have requirements against the current draft.
-type CritItem struct {
-	Label string
-	Note  string
-	OK    bool
 }
 
 // agentLines are the working-state description sentences from the handoff.
@@ -331,20 +323,8 @@ func versionLabel(doc *document.Document) string {
 // surfaced as "could not auto-confirm — verify" rather than asserted missing
 // (issue #246 B6): the old verbatim phrase match flagged any paraphrase as
 // absent, misleading the human exactly at the go/no-go gate.
-func deriveCriteria(opp *opportunity.Opportunity, doc *document.Document) []CritItem {
-	if len(opp.Requirements) == 0 {
-		return nil
-	}
-	text := strings.ToLower(doc.Markdown())
-	items := make([]CritItem, 0, len(opp.Requirements))
-	for _, req := range opp.Requirements {
-		item := CritItem{Label: req, OK: zone2view.RequirementAddressed(text, req)}
-		if !item.OK {
-			item.Note = "Kaimi could not auto-confirm this — verify in the draft"
-		}
-		items = append(items, item)
-	}
-	return items
+func deriveCriteria(opp *opportunity.Opportunity, doc *document.Document) []zone2view.Criterion {
+	return zone2view.DeriveCriteria(opp.Requirements, strings.ToLower(doc.Markdown()))
 }
 
 // handleAction dispatches the gate decisions and submit.

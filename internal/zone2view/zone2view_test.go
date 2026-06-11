@@ -83,3 +83,23 @@ func TestRequirementAddressed(t *testing.T) {
 		})
 	}
 }
+
+// TestDeriveCriteria locks the shared gate criteria (issue #246 B6): a
+// paraphrased must-have reads as met (no note), and a genuinely-absent one
+// carries the honest "could not auto-confirm" copy — never asserted missing.
+func TestDeriveCriteria(t *testing.T) {
+	if DeriveCriteria(nil, "anything") != nil {
+		t.Errorf("no requirements should yield nil criteria")
+	}
+	draft := "we deploy only fedramp high authorized tooling across the environment."
+	got := DeriveCriteria([]string{"FedRAMP High authorization", "ISO 27001 certification"}, draft)
+	if len(got) != 2 {
+		t.Fatalf("want 2 criteria, got %d", len(got))
+	}
+	if !got[0].OK || got[0].Note != "" {
+		t.Errorf("paraphrased must-have should be met with no note, got %+v", got[0])
+	}
+	if got[1].OK || got[1].Note != "Kaimi could not auto-confirm this — verify in the draft" {
+		t.Errorf("absent must-have should carry honest copy, got %+v", got[1])
+	}
+}
