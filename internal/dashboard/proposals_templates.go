@@ -279,6 +279,9 @@ const workspaceContentTmpl = `{{define "content"}}
       <div class="summary">The working draft is not available yet.</div>
       {{end}}
     </div>
+    <label class="demo-toggle" title="Demo mode shows a Save-to-Drive shortcut that skips Vera's gap check. Uncheck for a strict review walkthrough.">
+      <input type="checkbox" data-demo-toggle> Demo mode — show the Save-to-Drive shortcut (skips the gap check)
+    </label>
     <div class="r-actions">
       <form method="POST" action="/workspace/{{.Opp.ID}}/approve">
         <button class="kbtn kbtn--approve kbtn--lg">` + iconCheck + `Approve &amp; resume</button>
@@ -287,14 +290,17 @@ const workspaceContentTmpl = `{{define "content"}}
         <input type="text" name="note" placeholder="What should Tomás change?" style="height:40px;padding:0 13px;border:1px solid var(--border);border-radius:var(--r-md);font:var(--t-small);min-width:230px">
         <button class="kbtn kbtn--changes kbtn--lg">` + iconBack + `Request changes</button>
       </form>
-      <form method="POST" action="/workspace/{{.Opp.ID}}/submit" data-demo-only hidden style="margin:0">
+      <div class="note">Approving runs Vera&#39;s final pass on your edited draft. Requesting changes sends it back to Tomás.</div>
+    </div>
+    <div class="demo-submit" data-demo-only hidden>
+      <div>
+        <b>Demo mode · Save to Google Drive</b>
+        <p>Skip Vera&#39;s final pass and save the package straight to Drive — this bypasses any open [GAP] markers so you can show the full flow.</p>
+      </div>
+      <form method="POST" action="/workspace/{{.Opp.ID}}/submit" style="margin:0">
         <input type="hidden" name="demo" value="1">
         <button class="kbtn kbtn--select kbtn--lg">` + iconArrow + `Save to Google Drive</button>
       </form>
-      <label class="demo-toggle" title="Demo mode lets you save the package now, skipping Vera's final pass">
-        <input type="checkbox" data-demo-toggle> Demo mode
-      </label>
-      <div class="note">Approving runs Vera&#39;s final pass on your edited draft. Requesting changes sends it back to Tomás.</div>
     </div>
   </div>
 
@@ -368,8 +374,14 @@ const workspaceContentTmpl = `{{define "content"}}
   .ed-save-chip { font: 600 11px/1 var(--font-sans); color: var(--st-done); margin-left: 8px; text-transform: none; letter-spacing: 0; }
   .ed-save-chip.saving { color: var(--ink-3); }
   .r-actions form { margin: 0; }
-  .demo-toggle { display: inline-flex; align-items: center; gap: 6px; font: var(--t-small); color: var(--ink-3); cursor: pointer; user-select: none; margin-left: auto; }
+  .demo-toggle { display: inline-flex; align-items: center; gap: 6px; font: var(--t-small); color: var(--ink-3); cursor: pointer; user-select: none; margin: 16px 0 0; }
   .demo-toggle input { accent-color: var(--primary, #2563EB); width: 15px; height: 15px; }
+  .demo-submit { display: flex; align-items: center; gap: 16px; justify-content: space-between; flex-wrap: wrap; margin-top: 12px; padding: 16px 18px; border-radius: var(--r-md); border: 1px solid color-mix(in oklab, var(--st-done) 30%, transparent); background: linear-gradient(180deg, var(--st-done-bg), var(--surface) 70%); }
+  /* The [hidden] attribute must win over the display:flex above so the demo
+     toggle can actually hide the submit panel. */
+  .demo-submit[hidden] { display: none; }
+  .demo-submit b { font: 650 14px/1.3 var(--font-sans); color: var(--ink); }
+  .demo-submit p { font-size: 13px; color: var(--ink-soft); margin: 4px 0 0; line-height: 1.5; max-width: 52ch; }
   .draft-body { white-space: pre-wrap; background: var(--surface); border: 1px solid var(--border); border-radius: var(--r-md); padding: 12px 14px; font: var(--t-body); color: var(--ink); }
   .draft-pending { border: 1px dashed var(--border); border-radius: var(--r-md); padding: 12px 14px; font: var(--t-small); color: var(--ink-3); font-style: italic; }
 </style>
@@ -403,16 +415,20 @@ const workspaceContentTmpl = `{{define "content"}}
     });
   });
 
-  // Demo mode: a persisted toggle that reveals the "Save to Google Drive" action
-  // at the gate, so a presenter can show the full lifecycle without waiting for
-  // Vera's final pass. Production submit (the ready state) is unaffected.
+  // Demo mode: shows the "Save to Google Drive" panel at the gate alongside the
+  // normal review actions, so a presenter (or a hackathon judge self-testing the
+  // deployed app) can save the package without waiting for Vera's final pass —
+  // bypassing any open [GAP] markers. ON BY DEFAULT so the path is discoverable
+  // without flipping a hidden switch; uncheck it for a strict review walkthrough.
+  // Production submit (the ready state) is unaffected.
   (function () {
     var KEY = "kaimi_demo_mode";
     function apply(on) {
       document.querySelectorAll("[data-demo-only]").forEach(function (el) { el.hidden = !on; });
     }
     var toggle = document.querySelector("[data-demo-toggle]");
-    var on = localStorage.getItem(KEY) === "1";
+    var saved = localStorage.getItem(KEY);
+    var on = saved === null ? true : saved === "1"; // default ON
     if (toggle) toggle.checked = on;
     apply(on);
     if (toggle) {
