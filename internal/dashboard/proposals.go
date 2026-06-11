@@ -276,11 +276,10 @@ func (h *Handler) handleWorkspace(w http.ResponseWriter, r *http.Request) {
 			data.Doc = doc
 			data.VersionLabel = versionLabel(doc)
 			data.Criteria = deriveCriteria(opp, doc)
-			for _, f := range doc.Flags {
-				if !f.Resolved {
-					data.OpenFlags = append(data.OpenFlags, f)
-				}
-			}
+			// Per-gap "Unresolved gap" flags are excluded: the gate surfaces
+			// gaps through one aggregated summary + per-section bars instead
+			// of a banner per gap (issue #274).
+			data.OpenFlags = openNonGapFlags(doc.Flags)
 		}
 	}
 

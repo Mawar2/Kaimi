@@ -808,14 +808,29 @@ const editorStylesCSS = `
 .ed-flag b{ font:650 13px/1.35 var(--font-sans); color:color-mix(in oklab,var(--st-human) 75%,black); display:block; }
 .ed-flag p{ font:450 12.5px/1.5 var(--font-sans); color:var(--ink-soft); margin:3px 0 0; }
 
-/* Unresolved Writer gaps (issue #269): amber-tint the section editor, give each
-   gap a callout with a jump control, and mark gaps inline in read-only views. */
+/* Unresolved Writer gaps (issues #269/#274): amber-tint the section editor,
+   aggregate the gaps into one count bar per section (next-gap cycling + an
+   on-demand list), one summary block at the review gate, and inline marks in
+   read-only views. */
 .edsec textarea.gap-warn{ border-color:color-mix(in oklab,var(--st-human) 55%,transparent);
   background:color-mix(in oklab,var(--st-human-bg) 55%,var(--surface)); }
 .edsec textarea.gap-warn:focus{ border-color:var(--st-human); }
+/* The display rules above would otherwise beat the UA's [hidden] default, so
+   re-assert it: bars/summary/list only show while gaps exist. */
+.ed-gap[hidden], .gap-summary[hidden], .gap-list[hidden]{ display:none !important; }
 .ed-gap{ align-items:center; }
-.ed-gap > div{ flex:1; }
-.ed-gap .gap-jump{ flex:none; color:color-mix(in oklab,var(--st-human) 75%,black); }
+.ed-gap > div{ flex:1; min-width:0; }
+.ed-gap .gap-next, .ed-gap .gap-toggle{ flex:none; color:color-mix(in oklab,var(--st-human) 75%,black); }
+.ed-gap .gap-list{ list-style:none; margin:7px 0 0; padding:0; display:flex; flex-direction:column; gap:4px; }
+.ed-gap .gap-list li{ font:450 12.5px/1.5 var(--font-sans); color:var(--ink-soft); position:relative; padding-left:14px; }
+.ed-gap .gap-list li::before{ content:""; position:absolute; left:2px; top:7px; width:5px; height:5px;
+  border-radius:50%; background:var(--st-human); }
+.gap-summary{ align-items:flex-start; }
+.gap-summary .gs-list{ list-style:none; margin:9px 0 0; padding:0; display:flex; flex-direction:column; gap:5px; }
+.gap-summary .gs-list li{ display:flex; align-items:center; gap:8px; font:500 12.5px/1.4 var(--font-sans); }
+.gap-summary .gs-list a{ color:color-mix(in oklab,var(--st-human) 75%,black); font-weight:600; }
+.gap-summary .gs-n{ font:600 11px/1 var(--font-mono); color:color-mix(in oklab,var(--st-human) 80%,black);
+  background:color-mix(in oklab,var(--st-human) 16%,transparent); border-radius:var(--r-pill); padding:3px 7px; }
 .gap-mark{ background:var(--st-human-bg); color:color-mix(in oklab,var(--st-human) 75%,black);
   border:1px solid color-mix(in oklab,var(--st-human) 35%,transparent); border-radius:4px; padding:0 4px; font-weight:600; }
 `

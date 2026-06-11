@@ -4,6 +4,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"net/url"
+	"strings"
 	"testing"
 
 	"github.com/Mawar2/Kaimi/internal/proposal"
@@ -53,9 +54,10 @@ func TestEditorRequiresDocument(t *testing.T) {
 	}
 }
 
-// gapBody is a section body holding one unresolved Writer gap marker plus a
-// script tag, so the same fixture proves both the callout and the escaping.
-const gapBody = "Staffed by [GAP: number of cleared staff] engineers. <script>alert(1)</script>"
+// gapBody is a section body holding two unresolved Writer gap markers plus a
+// script tag, so the same fixture proves the aggregated gap bar (one bar, not
+// one callout per gap — issue #274) and the escaping.
+const gapBody = "Staffed by [GAP: number of cleared staff] engineers holding [GAP: facility clearance level] clearances. <script>alert(1)</script>"
 
 // seedGapSection selects zta-1 and writes gapBody into its first section.
 func seedGapSection(t *testing.T, h http.Handler, svc *proposal.Service) string {
@@ -75,10 +77,11 @@ func seedGapSection(t *testing.T, h http.Handler, svc *proposal.Service) string 
 	return secID
 }
 
-// TestEditorHighlightsUnresolvedGaps: a section holding a [GAP: ...] marker
-// gets the amber textarea tint, a per-gap callout with a jump control, and a
-// warn mark in the section rail — and the gap text is HTML-escaped.
-func TestEditorHighlightsUnresolvedGaps(t *testing.T) {
+// TestEditorAggregatesUnresolvedGaps: a section holding two [GAP: ...]
+// markers gets the amber textarea tint, ONE aggregated gap bar (count +
+// next-gap cycling + expandable list — issue #274, not one callout per gap),
+// and a warn mark in the section rail — and the gap text is HTML-escaped.
+func TestEditorAggregatesUnresolvedGaps(t *testing.T) {
 	h, svc, _ := newProposalHandler(t)
 	seedGapSection(t, h, svc)
 
@@ -89,22 +92,33 @@ func TestEditorHighlightsUnresolvedGaps(t *testing.T) {
 	}
 	body := rr.Body.String()
 	for _, want := range []string{
-		`class="gap-warn"`,                   // amber textarea tint
-		"Unresolved gap",                     // callout title
-		"number of cleared staff",            // the missing-fact text
-		`data-gap="number of cleared staff"`, // jump-to-gap hook
-		`class="ed-sec warn"`,                // section rail warn mark
+		`class="gap-warn"`,         // amber textarea tint
+		"2 unresolved gaps",        // aggregated count, not per-gap callouts
+		"data-gapnext",             // cycle-through-gaps control
+		"data-gaptoggle",           // expandable gap list
+		"number of cleared staff",  // first missing fact, in the list
+		"facility clearance level", // second missing fact, in the list
+		`class="ed-sec warn"`,      // section rail warn mark
+		"function gapTexts",        // client-side live recount script
 	} {
 		if !contains(body, want) {
 			t.Errorf("/editor missing %q", want)
 		}
+	}
+	if got := strings.Count(body, "data-gapbar>"); got != 1 {
+		t.Errorf("a 2-gap section must render exactly 1 visible gap bar, got %d", got)
+	}
+	if contains(body, "Find in text") {
+		t.Errorf("per-gap 'Find in text' buttons must be replaced by the aggregated bar")
 	}
 	if contains(body, "<script>alert(1)</script>") {
 		t.Errorf("section body with markup must be HTML-escaped")
 	}
 }
 
-// TestEditorNoGaps_NoWarnUI: a clean draft renders without any gap UI.
+// TestEditorNoGaps_NoWarnUI: a clean draft renders without visible gap UI —
+// the bar is present but hidden, so the live recount can reveal it if the
+// human types a new [GAP: ...] marker.
 func TestEditorNoGaps_NoWarnUI(t *testing.T) {
 	h, svc, _ := newProposalHandler(t)
 	if rr := postForm(t, h, "/opportunity/zta-1/select", url.Values{}); rr.Code != http.StatusSeeOther {
@@ -115,16 +129,26 @@ func TestEditorNoGaps_NoWarnUI(t *testing.T) {
 	rr := httptest.NewRecorder()
 	h.ServeHTTP(rr, httptest.NewRequest("GET", "/editor/zta-1", http.NoBody))
 	body := rr.Body.String()
-	for _, reject := range []string{`class="gap-warn"`, "Unresolved gap"} {
+	for _, reject := range []string{`class="gap-warn"`, `class="ed-sec warn"`} {
 		if contains(body, reject) {
 			t.Errorf("clean draft must not render %q", reject)
 		}
 	}
+	if contains(body, "data-gapbar") && !contains(body, "data-gapbar hidden") {
+		t.Errorf("clean draft must render gap bars hidden")
+	}
+	// The design system sets display:flex on .ed-flag, which beats the UA's
+	// [hidden] default — the stylesheet must re-assert it or hidden bars show
+	// as "0 unresolved gaps" callouts.
+	if !contains(body, ".ed-gap[hidden]") {
+		t.Errorf("stylesheet must keep [hidden] gap bars display:none")
+	}
 }
 
-// TestWorkspaceGateHighlightsGaps: the review-gate section editors get the
-// same gap treatment as the full editor.
-func TestWorkspaceGateHighlightsGaps(t *testing.T) {
+// TestWorkspaceGateAggregatesGaps: the review-gate section editors get the
+// same aggregated gap bar as the full editor, plus a top-of-page summary
+// ("N unresolved gaps across M sections") with anchor links to the sections.
+func TestWorkspaceGateAggregatesGaps(t *testing.T) {
 	h, svc, _ := newProposalHandler(t)
 	seedGapSection(t, h, svc)
 
@@ -136,12 +160,43 @@ func TestWorkspaceGateHighlightsGaps(t *testing.T) {
 	body := rr.Body.String()
 	for _, want := range []string{
 		`class="gap-warn"`,
-		"Unresolved gap",
+		"2 unresolved gaps",
+		"data-gapnext",
 		"number of cleared staff",
-		`data-gap="number of cleared staff"`,
+		"facility clearance level",
+		"data-gapsummary",                    // top-of-page summary block
+		"2 unresolved gaps across 1 section", // summary headline
+		`href="#gsec-`,                       // summary anchor link to the section
+		"function gapTexts",                  // client-side live recount script
 	} {
 		if !contains(body, want) {
 			t.Errorf("/workspace gate missing %q", want)
 		}
+	}
+	if got := strings.Count(body, "data-gapbar>"); got != 1 {
+		t.Errorf("a 2-gap section must render exactly 1 visible gap bar, got %d", got)
+	}
+	if contains(body, "Find in text") {
+		t.Errorf("per-gap 'Find in text' buttons must be replaced by the aggregated bar")
+	}
+}
+
+// TestWorkspaceGateNoGaps_SummaryHidden: a clean draft at the gate renders the
+// summary hidden so the live recount can reveal it if a gap is introduced.
+func TestWorkspaceGateNoGaps_SummaryHidden(t *testing.T) {
+	h, svc, _ := newProposalHandler(t)
+	if rr := postForm(t, h, "/opportunity/zta-1/select", url.Values{}); rr.Code != http.StatusSeeOther {
+		t.Fatalf("select: status %d, want 303", rr.Code)
+	}
+	svc.Wait()
+
+	rr := httptest.NewRecorder()
+	h.ServeHTTP(rr, httptest.NewRequest("GET", "/workspace/zta-1", http.NoBody))
+	body := rr.Body.String()
+	if contains(body, "data-gapsummary") && !contains(body, "data-gapsummary hidden") {
+		t.Errorf("clean draft must render the gap summary hidden")
+	}
+	if contains(body, `class="gap-warn"`) {
+		t.Errorf("clean draft must not tint any textarea")
 	}
 }
