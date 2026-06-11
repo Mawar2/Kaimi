@@ -17,6 +17,7 @@ import (
 
 	"github.com/Mawar2/Kaimi/internal/dashboard"
 	"github.com/Mawar2/Kaimi/internal/document"
+	"github.com/Mawar2/Kaimi/internal/fallback"
 	"github.com/Mawar2/Kaimi/internal/finalreview"
 	"github.com/Mawar2/Kaimi/internal/googledocs"
 	"github.com/Mawar2/Kaimi/internal/ingest"
@@ -101,13 +102,21 @@ func newProposalService(s store.Store, basePath string, liveWriter, liveReview, 
 		}
 		ol = outline.NewWithPlanner(docsClient, planner)
 
-		gen, err := writer.NewGeminiGenerator(context.Background(),
-			projectID, region, envOr("GEMINI_MODEL", "gemini-3.1-pro-preview"))
+		primaryModel := envOr("GEMINI_MODEL", "gemini-3.1-pro-preview")
+		backupModel := envOr("WRITER_FALLBACK_MODEL", "gemini-2.5-pro")
+		primary, err := writer.NewGeminiGenerator(context.Background(), projectID, region, primaryModel)
 		if err != nil {
-			return nil, fmt.Errorf("gemini generator: %w", err)
+			return nil, fmt.Errorf("gemini generator (primary %s): %w", primaryModel, err)
 		}
-		w = writer.NewWithGenerator(gen)
-		log.Printf("Outline: LIVE gemini-3.5-flash planner; Technical Writer %q: LIVE gemini-3.1-pro-preview drafting (project %s)", "Thomas", projectID)
+		backup, err := writer.NewGeminiGenerator(context.Background(), projectID, region, backupModel)
+		if err != nil {
+			return nil, fmt.Errorf("gemini generator (backup %s): %w", backupModel, err)
+		}
+		// Prod posture: real-model primary with a real-model backup. If the primary (a 3.x
+		// thinking model) errors or returns empty, the Writer fails over to the backup; if
+		// both fail it returns a failed status behind the human gate — never a fabricated stub.
+		w = writer.NewWithGenerator(fallback.NewGenerator(primary, backup))
+		log.Printf("Outline: LIVE gemini-3.5-flash planner; Technical Writer %q: LIVE drafting + fallback (project %s, primary %s, backup %s)", "Thomas", projectID, primaryModel, backupModel)
 	} else {
 		log.Printf("Outline + Technical Writer: OFFLINE stub mode (-offline) — live Gemini agents are the default")
 	}
@@ -125,13 +134,19 @@ func newProposalService(s store.Store, basePath string, liveWriter, liveReview, 
 		// FINALREVIEW_MODEL lets it stay on the validated model (and swap to a Claude
 		// model once Anthropic-on-Vertex quota lands), regardless of GEMINI_MODEL.
 		reviewModel := envOr("FINALREVIEW_MODEL", "gemini-2.5-pro")
-		checker, err := finalreview.NewGeminiComplianceChecker(context.Background(),
-			projectID, envOr("GCP_REGION", "us-east4"), reviewModel)
+		backupModel := envOr("FINALREVIEW_FALLBACK_MODEL", "gemini-2.5-pro")
+		primary, err := finalreview.NewGeminiComplianceChecker(context.Background(), projectID, region, reviewModel)
 		if err != nil {
-			return nil, fmt.Errorf("gemini compliance checker: %w", err)
+			return nil, fmt.Errorf("gemini compliance checker (primary %s): %w", reviewModel, err)
 		}
-		review = finalreview.NewWithComplianceChecker(checker)
-		log.Printf("Final Review: LIVE Gemini compliance pass enabled (project %s, model %s)", projectID, reviewModel)
+		backup, err := finalreview.NewGeminiComplianceChecker(context.Background(), projectID, region, backupModel)
+		if err != nil {
+			return nil, fmt.Errorf("gemini compliance checker (backup %s): %w", backupModel, err)
+		}
+		// Real-model primary + backup. If both fail, runCompliance routes to needs-human
+		// (verify manually) and the deterministic checks still stand — no skipped gate, no stub.
+		review = finalreview.NewWithComplianceChecker(fallback.NewChecker(primary, backup))
+		log.Printf("Final Review: LIVE compliance pass + fallback (project %s, primary %s, backup %s)", projectID, reviewModel, backupModel)
 	} else {
 		log.Printf("Final Review: OFFLINE deterministic checks only (-offline) — live Gemini compliance is the default")
 	}
@@ -172,11 +187,11 @@ func newProposalService(s store.Store, basePath string, liveWriter, liveReview, 
 	}), nil
 }
 
-func envOr(key, fallback string) string {
+func envOr(key, def string) string {
 	if v := os.Getenv(key); v != "" {
 		return v
 	}
-	return fallback
+	return def
 }
 
 func run() error {
