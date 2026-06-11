@@ -72,7 +72,7 @@ phase, surface the architectural forks, don't guess.
 ## PROGRESS (loop updates every iteration)
 - [x] Tracking issue created with AC — Mawar2/Kaimi#249
 - [x] Phase 0 baseline — frontend builds (npm ci + build → dist), `go build ./...` OK, desktop runs (vite :5173). Findings: B1 does NOT repro (SPA shares sidebar state, counts show on workspace); desktop artifacts are mock docx/xlsx (not draft.md/document.json); criteria/flags are mock text. Confirms: real fix = wire to live backend, not patch mock JSX. Screenshots DT-00..DT-03.
-- [ ] Phase 1 ★ integration architecture proposed + Malik signed off
+- [~] Phase 1 ★ — Malik signed off (2026-06-11): proceed now (merge #247), shared logic in NEW `internal/zone2view` package. #247 merged into this branch CLEANLY (no conflicts), build + dashboard/desktop/proposal tests green. NEXT: extract internal/zone2view (proposalView/state, requirementAddressed/criteria, stage vocab) from internal/dashboard; dashboard delegates.
 - [ ] Phase 2 desktop backend over live service (per-method, TDD)
 - [ ] Phase 3 Wails bindings
 - [ ] Phase 4 frontend rewired to live data (B1/B3/B4 applied, B2/B6 inherited)
@@ -82,4 +82,5 @@ phase, surface the architectural forks, don't guess.
 
 ### Iteration log
 (append: date — what changed — commit — verify result)
+- 2026-06-11 — Phase 1a: Malik signed off (merge #247 now; shared logic = new internal/zone2view). Merged fix/dashboard-zone2-qa into feature/desktop-live-backend — CLEAN, no conflicts. `go build ./...` OK; internal/dashboard + internal/desktop + internal/proposal tests green. Next: extract internal/zone2view.
 - 2026-06-11 — Phase 0: built frontend (npm ci, vite build → dist), `go build ./cmd/desktop` + `./...` now pass on Windows. Ran vite :5173, QA'd prototype (onboarding→opps→proposals→workspace gate). Baseline: desktop is mock below the opps list; B1 doesn't repro (SPA shared state), artifacts are mock docx/xlsx, criteria/flags mock. Build-fix needs no code change — dist must be built before `go build` (CI on linux skips desktop via build tag). Reached Phase 1 ★ — paused for Malik's architecture sign-off.
