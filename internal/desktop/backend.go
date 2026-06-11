@@ -8,7 +8,9 @@ import (
 	"time"
 
 	"github.com/Mawar2/Kaimi/internal/dashboard"
+	"github.com/Mawar2/Kaimi/internal/proposal"
 	"github.com/Mawar2/Kaimi/internal/store"
+	"github.com/Mawar2/Kaimi/internal/zone2view"
 )
 
 // storePathEnv is the environment variable that overrides the local store
@@ -45,12 +47,15 @@ func ResolveStorePath(override string) (string, error) {
 }
 
 // Backend is the UI-agnostic data layer for the desktop dashboard. It wraps the
-// shared internal/dashboard read-only Service over a local JSON store.
-//
-// Backend performs only reads; it never mutates the store (offline writes and
-// the sync queue are later tickets — see ADR-001 and #140).
+// shared internal/dashboard read-only Service for opportunity reads, and — when
+// a proposal service is wired via WithProposals — the shared internal/proposal
+// lifecycle for the Zone 2 flow (select, gate actions, drafting). Both the web
+// dashboard and the desktop drive the same internal/proposal.Service, and both
+// derive display state from internal/zone2view, so the two surfaces cannot
+// disagree about a proposal's stage or criteria (issue #249).
 type Backend struct {
 	svc       *dashboard.Service
+	proposals *proposal.Service // nil = read-only (no Zone 2 actions)
 	storePath string
 
 	// Now supplies the current time for deadline computation. It is a field so
@@ -58,19 +63,41 @@ type Backend struct {
 	Now func() time.Time
 }
 
+// Option configures optional Backend capabilities.
+type Option func(*Backend)
+
+// WithProposals enables the Zone 2 surfaces (select, proposals list, workspace,
+// gate actions) backed by the shared proposal lifecycle service. The service
+// must read/write the same store directory as the Backend.
+func WithProposals(p *proposal.Service) Option {
+	return func(b *Backend) { b.proposals = p }
+}
+
 // New opens (creating if absent) the local store at storePath and returns a
 // Backend over it. A missing directory is created rather than treated as an
 // error, so a first run on a fresh machine shows an empty state, not a crash.
-func New(storePath string) (*Backend, error) {
+func New(storePath string, opts ...Option) (*Backend, error) {
 	s, err := store.NewJSONStore(storePath)
 	if err != nil {
 		return nil, fmt.Errorf("open local store at %q: %w", storePath, err)
 	}
-	return &Backend{
+	b := &Backend{
 		svc:       dashboard.NewService(s),
 		storePath: storePath,
 		Now:       time.Now,
-	}, nil
+	}
+	for _, opt := range opts {
+		opt(b)
+	}
+	return b, nil
+}
+
+// now returns the backend's clock, defaulting to time.Now.
+func (b *Backend) now() time.Time {
+	if b.Now != nil {
+		return b.Now()
+	}
+	return time.Now()
 }
 
 // StorePath returns the resolved local store directory the backend is reading.
@@ -109,5 +136,85 @@ func (b *Backend) ListOpportunities(ctx context.Context) (ListResult, error) {
 		res.Empty = true
 		res.Message = emptyStoreMessage
 	}
+	return res, nil
+}
+
+// errProposalsDisabled is returned by the Zone 2 methods when no proposal
+// service is wired (a read-only deployment).
+var errProposalsDisabled = fmt.Errorf("proposal actions are not enabled on this backend")
+
+// Select is the Zone 1 → Zone 2 bridge: the human chooses to pursue an
+// opportunity. It starts the real draft pipeline (Outline → Writer) in the
+// background, pausing at the human gate. It is a no-op error when proposals are
+// not enabled.
+func (b *Backend) Select(ctx context.Context, oppID string) error {
+	if b.proposals == nil {
+		return errProposalsDisabled
+	}
+	if err := b.proposals.Select(ctx, oppID); err != nil {
+		return fmt.Errorf("select %s: %w", oppID, err)
+	}
+	return nil
+}
+
+// ProposalCard is the desktop view-model for one active-proposal card. Display
+// state (StageIndex/State/When) comes from internal/zone2view — the same source
+// the web uses — so the two surfaces agree (issue #246 B2).
+type ProposalCard struct {
+	ID         string    `json:"id"`
+	Title      string    `json:"title"`
+	Agency     string    `json:"agency"`
+	When       string    `json:"when"`       // named-teammate status phrase
+	StageIndex int       `json:"stageIndex"` // 0-4 pipeline position
+	State      string    `json:"state"`      // human|progress|done|submitted|failed
+	Deadline   time.Time `json:"deadline"`   // zero when unset; the UI formats it
+}
+
+// ProposalsResult is the view-model for the desktop Proposals command view.
+type ProposalsResult struct {
+	StorePath string         `json:"storePath"`
+	InFlight  int            `json:"inFlight"` // proposals the agents are working
+	NeedsYou  int            `json:"needsYou"` // proposals paused at the human gate
+	Cards     []ProposalCard `json:"cards"`
+	Empty     bool           `json:"empty"`
+}
+
+// ListProposals returns every opportunity that has entered the Zone 2 pipeline
+// (selected and beyond), as cards whose state is derived from the raw
+// ProposalStatus via internal/zone2view — identical to the web command view, so
+// the list and the workspace can never contradict each other.
+func (b *Backend) ListProposals(ctx context.Context) (ProposalsResult, error) {
+	rows, err := b.svc.List(ctx, dashboard.ListOptions{Now: b.now()})
+	if err != nil {
+		return ProposalsResult{}, fmt.Errorf("list proposals: %w", err)
+	}
+	res := ProposalsResult{StorePath: b.storePath}
+	for i := range rows {
+		row := &rows[i]
+		// Skip opportunities still in triage (not yet pursued).
+		if row.Stage == dashboard.StageHunted || row.Stage == dashboard.StageScored {
+			continue
+		}
+		stageIndex, state := zone2view.View(row.ProposalStatus)
+		res.Cards = append(res.Cards, ProposalCard{
+			ID:         row.ID,
+			Title:      row.Title,
+			Agency:     row.Agency,
+			When:       zone2view.StatusPhrase(stageIndex, state),
+			StageIndex: stageIndex,
+			State:      state,
+			Deadline:   row.ResponseDeadline,
+		})
+		switch state {
+		case "human":
+			res.NeedsYou++
+			res.InFlight++
+		case "submitted":
+			// terminal — not in flight
+		default:
+			res.InFlight++
+		}
+	}
+	res.Empty = len(res.Cards) == 0
 	return res, nil
 }
