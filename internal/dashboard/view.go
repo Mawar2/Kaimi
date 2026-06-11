@@ -38,6 +38,11 @@ type ListOptions struct {
 	SortBy SortKey
 	// Now is injected for DeadlineSoon computation. Zero value disables the flag.
 	Now time.Time
+	// ExcludeSelected drops opportunities a human has already pursued
+	// (opp.Selected). The Triage queue is self-cleaning: an opportunity
+	// disappears from the Opportunities tab the moment it is pursued
+	// (PIPELINE §1, issue #224).
+	ExcludeSelected bool
 }
 
 // OpportunityRow is the view-model for a single row in the dashboard list view.
@@ -92,7 +97,7 @@ func NewService(s store.Store) *Service {
 // Score filtering is delegated to store.Filter (store-side, efficient).
 // Stage filtering is applied in Go after retrieval because Stage is derived
 // from field values and is not a stored field.
-func (svc *Service) List(ctx context.Context, opts ListOptions) ([]OpportunityRow, error) {
+func (svc *Service) List(ctx context.Context, opts ListOptions) ([]OpportunityRow, error) { //nolint:gocritic // ListOptions is a small read-only options struct; value semantics are intentional
 	opps, err := svc.store.List(ctx, &store.Filter{MinScore: opts.MinScore})
 	if err != nil {
 		return nil, fmt.Errorf("dashboard list: %w", err)
@@ -100,6 +105,9 @@ func (svc *Service) List(ctx context.Context, opts ListOptions) ([]OpportunityRo
 
 	rows := make([]OpportunityRow, 0, len(opps))
 	for _, opp := range opps {
+		if opts.ExcludeSelected && opp.Selected {
+			continue
+		}
 		stage := DeriveStage(opp)
 		if opts.Stage != nil && stage != *opts.Stage {
 			continue
