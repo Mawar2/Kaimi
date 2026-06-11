@@ -5,6 +5,7 @@ import (
 	"html/template"
 	"net/http"
 	"strings"
+	"unicode"
 
 	"github.com/Mawar2/Kaimi/internal/document"
 	"github.com/Mawar2/Kaimi/internal/opportunity"
@@ -352,8 +353,12 @@ func versionLabel(doc *document.Document) string {
 	return fmt.Sprintf("v%d · %s", doc.Version, name)
 }
 
-// deriveCriteria checks each must-have requirement against the current
-// draft content — honest, derived state, never fabricated.
+// deriveCriteria checks each must-have requirement against the current draft
+// content — honest, derived state, never fabricated. The check is a lenient
+// term-overlap heuristic (see requirementAddressed), so an unconfirmed item is
+// surfaced as "could not auto-confirm — verify" rather than asserted missing
+// (issue #246 B6): the old verbatim phrase match flagged any paraphrase as
+// absent, misleading the human exactly at the go/no-go gate.
 func deriveCriteria(opp *opportunity.Opportunity, doc *document.Document) []CritItem {
 	if len(opp.Requirements) == 0 {
 		return nil
@@ -361,14 +366,75 @@ func deriveCriteria(opp *opportunity.Opportunity, doc *document.Document) []Crit
 	text := strings.ToLower(doc.Markdown())
 	items := make([]CritItem, 0, len(opp.Requirements))
 	for _, req := range opp.Requirements {
-		ok := strings.Contains(text, strings.ToLower(req))
-		item := CritItem{Label: req, OK: ok}
-		if !ok {
-			item.Note = "Not yet addressed in the draft"
+		item := CritItem{Label: req, OK: requirementAddressed(text, req)}
+		if !item.OK {
+			item.Note = "Kaimi could not auto-confirm this — verify in the draft"
 		}
 		items = append(items, item)
 	}
 	return items
+}
+
+// requirementStopwords are common words dropped before term matching so the
+// signal comes from the requirement's meaningful terms, not filler.
+var requirementStopwords = map[string]bool{
+	"the": true, "and": true, "for": true, "with": true, "must": true,
+	"shall": true, "will": true, "have": true, "from": true, "that": true,
+	"this": true, "any": true, "all": true, "are": true, "per": true,
+	"including": true, "provide": true, "required": true,
+}
+
+// requirementAddressed reports whether the draft plausibly addresses a
+// requirement. The previous check demanded the full requirement phrase verbatim,
+// so a paraphrase ("FedRAMP High authorized tooling" vs requirement "FedRAMP
+// High authorization") was wrongly flagged missing. Instead, score the overlap
+// of the requirement's significant terms against the draft, comparing stems so
+// "authorization" is satisfied by "authorized". A requirement counts as
+// addressed when at least two-thirds of its significant terms appear — lenient
+// enough to tolerate a synonym swap, strict enough not to match on noise. The
+// draft is passed already lowercased by deriveCriteria.
+func requirementAddressed(draftLower, requirement string) bool {
+	terms := significantRequirementTerms(requirement)
+	if len(terms) == 0 {
+		// No meaningful terms (e.g. a requirement of only stopwords): fall back
+		// to the whole-phrase check rather than claiming a spurious match.
+		return strings.Contains(draftLower, strings.ToLower(strings.TrimSpace(requirement)))
+	}
+	hits := 0
+	for _, term := range terms {
+		if strings.Contains(draftLower, stemTerm(term)) {
+			hits++
+		}
+	}
+	return hits*3 >= len(terms)*2
+}
+
+// significantRequirementTerms splits a requirement into lowercased, meaningful
+// terms: alphanumeric runs of length >= 3 that are not stopwords.
+func significantRequirementTerms(requirement string) []string {
+	var terms []string
+	for _, field := range strings.FieldsFunc(strings.ToLower(requirement), func(r rune) bool {
+		return !unicode.IsLetter(r) && !unicode.IsNumber(r)
+	}) {
+		if len(field) < 3 || requirementStopwords[field] {
+			continue
+		}
+		terms = append(terms, field)
+	}
+	return terms
+}
+
+// stemTerm trims a few common English suffixes so inflected forms match a shared
+// stem ("authorization"/"authorized" -> "author", "modernization"/"modernize"
+// -> "modern"). Longest suffixes are checked first; the length guard keeps short
+// words intact.
+func stemTerm(term string) string {
+	for _, suf := range []string{"ization", "isation", "ation", "izing", "ized", "izes", "ing", "ed", "es", "s"} {
+		if len(term) > len(suf)+2 && strings.HasSuffix(term, suf) {
+			return term[:len(term)-len(suf)]
+		}
+	}
+	return term
 }
 
 // handleAction dispatches the gate decisions and submit.
