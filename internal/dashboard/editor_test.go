@@ -137,6 +137,12 @@ func TestEditorNoGaps_NoWarnUI(t *testing.T) {
 	if contains(body, "data-gapbar") && !contains(body, "data-gapbar hidden") {
 		t.Errorf("clean draft must render gap bars hidden")
 	}
+	// The design system sets display:flex on .ed-flag, which beats the UA's
+	// [hidden] default — the stylesheet must re-assert it or hidden bars show
+	// as "0 unresolved gaps" callouts.
+	if !contains(body, ".ed-gap[hidden]") {
+		t.Errorf("stylesheet must keep [hidden] gap bars display:none")
+	}
 }
 
 // TestWorkspaceGateAggregatesGaps: the review-gate section editors get the

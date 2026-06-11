@@ -815,6 +815,9 @@ const editorStylesCSS = `
 .edsec textarea.gap-warn{ border-color:color-mix(in oklab,var(--st-human) 55%,transparent);
   background:color-mix(in oklab,var(--st-human-bg) 55%,var(--surface)); }
 .edsec textarea.gap-warn:focus{ border-color:var(--st-human); }
+/* The display rules above would otherwise beat the UA's [hidden] default, so
+   re-assert it: bars/summary/list only show while gaps exist. */
+.ed-gap[hidden], .gap-summary[hidden], .gap-list[hidden]{ display:none !important; }
 .ed-gap{ align-items:center; }
 .ed-gap > div{ flex:1; min-width:0; }
 .ed-gap .gap-next, .ed-gap .gap-toggle{ flex:none; color:color-mix(in oklab,var(--st-human) 75%,black); }
