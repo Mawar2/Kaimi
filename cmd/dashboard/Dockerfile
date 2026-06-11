@@ -39,4 +39,9 @@ COPY --from=build /out/dashboard /app/dashboard
 # repo config into the image (override with --profile if needed).
 COPY --from=build /src/config /app/config
 
+# The outline agent's cached Google-docs client reads a fixture from disk at
+# startup (googledocs.NewClient with UseCached). Bake test/fixtures in too, as
+# cmd/pipeline's image does, so the proposal service wires up on Cloud Run.
+COPY --from=build /src/test/fixtures /app/test/fixtures
+
 ENTRYPOINT ["/app/dashboard"]
