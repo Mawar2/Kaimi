@@ -292,7 +292,7 @@ const detailContentTmpl = `{{define "content"}}
   </div>
   {{if .Opp.URL}}
   <div class="art-row" style="margin-top:10px">
-    <a class="artifact2" href="{{.Opp.URL}}">` + iconLink + `View solicitation</a>
+    <a class="artifact2" href="{{.Opp.URL}}" target="_blank" rel="noopener noreferrer">` + iconLink + `View solicitation</a>
   </div>
   {{end}}
 
@@ -485,6 +485,10 @@ func (h *Handler) handleList(w http.ResponseWriter, r *http.Request) {
 	if query.Get("sort") == "deadline" {
 		opts.SortBy = SortByDeadline
 	}
+	// Self-cleaning queue (issue #224): a pursued opportunity leaves the
+	// Opportunities tab the moment it is pursued. Pursued opps still feed the
+	// pipeline counts below (computed from the unfiltered `all`).
+	opts.ExcludeSelected = true
 
 	rows, err := h.svc.List(ctx, opts)
 	if err != nil {
@@ -504,9 +508,8 @@ func (h *Handler) handleList(w http.ResponseWriter, r *http.Request) {
 
 	data := OverviewData{
 		shellData: shellData{
-			PageTitle:  "Opportunities",
-			ActiveNav:  "opps",
-			QueueCount: len(all),
+			PageTitle: "Opportunities",
+			ActiveNav: "opps",
 		},
 		ActiveRec:  opts.Recommendation,
 		ActiveSort: "score",
@@ -517,13 +520,18 @@ func (h *Handler) handleList(w http.ResponseWriter, r *http.Request) {
 		data.ActiveSort, data.SortToggle, data.SortLabel = "deadline", "score", "Deadline"
 	}
 	for i := range all {
-		if sameDay(all[i].CreatedAt, now) {
-			data.NewCount++
-		}
-		if pct := int(math.Round(all[i].Score * 100)); pct > data.TopFit {
-			data.TopFit = pct
-		}
 		switch all[i].Stage {
+		case StageHunted, StageScored:
+			// Un-pursued queue: drives the Opportunities nav count and the
+			// Triage header stats (in-queue / new today / top fit). Pursued
+			// opps are excluded here so the numbers match the visible list.
+			data.QueueCount++
+			if sameDay(all[i].CreatedAt, now) {
+				data.NewCount++
+			}
+			if pct := int(math.Round(all[i].Score * 100)); pct > data.TopFit {
+				data.TopFit = pct
+			}
 		case StageAwaitingHumanReview:
 			data.NeedsCount++
 			data.ActiveCount++

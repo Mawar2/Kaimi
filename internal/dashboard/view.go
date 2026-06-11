@@ -38,6 +38,11 @@ type ListOptions struct {
 	SortBy SortKey
 	// Now is injected for DeadlineSoon computation. Zero value disables the flag.
 	Now time.Time
+	// ExcludeSelected drops opportunities a human has already pursued
+	// (opp.Selected). The Triage queue is self-cleaning: an opportunity
+	// disappears from the Opportunities tab the moment it is pursued
+	// (PIPELINE §1, issue #224).
+	ExcludeSelected bool
 }
 
 // OpportunityRow is the view-model for a single row in the dashboard list view.
@@ -100,6 +105,9 @@ func (svc *Service) List(ctx context.Context, opts ListOptions) ([]OpportunityRo
 
 	rows := make([]OpportunityRow, 0, len(opps))
 	for _, opp := range opps {
+		if opts.ExcludeSelected && opp.Selected {
+			continue
+		}
 		stage := DeriveStage(opp)
 		if opts.Stage != nil && stage != *opts.Stage {
 			continue
