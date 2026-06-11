@@ -3,6 +3,7 @@ package dashboard
 import (
 	"fmt"
 	"html/template"
+	"io"
 	"net/http"
 	"strings"
 	"unicode"
@@ -464,6 +465,29 @@ func (h *Handler) handleAction(action string) http.HandlerFunc {
 		}
 		http.Redirect(w, r, "/workspace/"+id, http.StatusSeeOther)
 	}
+}
+
+// handleDraftDownload serves the proposal's working draft as a Markdown file so
+// the workspace's "draft.md" is a real, openable artifact instead of a dead
+// label (issue #246 B3). The internal document.json is intentionally not exposed.
+func (h *Handler) handleDraftDownload(w http.ResponseWriter, r *http.Request) {
+	if h.proposals == nil {
+		http.Error(w, "proposal actions are not enabled on this server", http.StatusServiceUnavailable)
+		return
+	}
+	id := r.PathValue("id")
+	if !opportunityIDPattern.MatchString(id) {
+		h.renderNotFound(w, id)
+		return
+	}
+	doc, err := h.proposals.Document(id)
+	if err != nil {
+		h.renderNotFound(w, id)
+		return
+	}
+	w.Header().Set("Content-Type", "text/markdown; charset=utf-8")
+	w.Header().Set("Content-Disposition", fmt.Sprintf("attachment; filename=%q", id+"-draft.md"))
+	_, _ = io.WriteString(w, doc.Markdown())
 }
 
 func (h *Handler) handleSectionSave(w http.ResponseWriter, r *http.Request) {

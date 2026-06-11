@@ -67,6 +67,7 @@ func (h *Handler) setupRoutes() {
 	h.mux.HandleFunc("/opportunity/{id}/select", postOnly(h.handleSelect))
 	h.mux.HandleFunc("GET /proposals", h.handleProposals)
 	h.mux.HandleFunc("GET /workspace/{id}", h.handleWorkspace)
+	h.mux.HandleFunc("GET /workspace/{id}/draft.md", h.handleDraftDownload)
 	h.mux.HandleFunc("/workspace/{id}/section/{sid}", postOnly(h.handleSectionSave))
 	h.mux.HandleFunc("/workspace/{id}/approve", postOnly(h.handleAction("approve")))
 	h.mux.HandleFunc("/workspace/{id}/changes", postOnly(h.handleAction("changes")))
