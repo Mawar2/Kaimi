@@ -312,6 +312,9 @@ func (h *Handler) handleWorkspace(w http.ResponseWriter, r *http.Request) {
 		AtGate:     state == "human",
 	}
 	data.AgentLine = agentLines[agentKeyFor(stageIndex)]
+	// The sidebar shows the same queue/needs/active counts here as on every
+	// other page (issue #246 B1).
+	h.fillShellCounts(r.Context(), &data.shellData, now)
 	if opp.Score > 0 {
 		data.ScorePct = int(0.5 + opp.Score*100)
 	}
