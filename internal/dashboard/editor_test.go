@@ -158,26 +158,40 @@ func TestWorkspaceGateAggregatesGaps(t *testing.T) {
 		t.Fatalf("GET /workspace/zta-1: status %d", rr.Code)
 	}
 	body := rr.Body.String()
+	// The gate keeps the aggregated summary + the entry point to the full editor,
+	// but the per-section gap bars and next-gap controls now live ONLY on the full
+	// editor (the gate stays a clean review surface).
 	for _, want := range []string{
-		`class="gap-warn"`,
-		"2 unresolved gaps",
-		"data-gapnext",
-		"number of cleared staff",
-		"facility clearance level",
+		`class="gap-warn"`,                   // a textarea with gaps is still highlighted
 		"data-gapsummary",                    // top-of-page summary block
 		"2 unresolved gaps across 1 section", // summary headline
 		`href="#gsec-`,                       // summary anchor link to the section
-		"function gapTexts",                  // client-side live recount script
+		"Open full editor mode",              // entry point to gap resolution
 	} {
 		if !contains(body, want) {
 			t.Errorf("/workspace gate missing %q", want)
 		}
 	}
-	if got := strings.Count(body, "data-gapbar>"); got != 1 {
-		t.Errorf("a 2-gap section must render exactly 1 visible gap bar, got %d", got)
+	// Match the rendered elements (trailing ">"), not the shared JS selectors
+	// ("[data-gapbar]") that the live-recount script still references.
+	if got := strings.Count(body, "data-gapbar>"); got != 0 {
+		t.Errorf("the gate must not render per-section gap bars (they live on the full editor now), got %d", got)
 	}
-	if contains(body, "Find in text") {
-		t.Errorf("per-gap 'Find in text' buttons must be replaced by the aggregated bar")
+	if contains(body, "data-gapnext>") {
+		t.Errorf("the gate must not render the next-gap control")
+	}
+
+	// The full editor still carries the per-section gap bar + next-gap control.
+	er := httptest.NewRecorder()
+	h.ServeHTTP(er, httptest.NewRequest("GET", "/editor/zta-1", http.NoBody))
+	if er.Code != http.StatusOK {
+		t.Fatalf("GET /editor/zta-1: status %d", er.Code)
+	}
+	ebody := er.Body.String()
+	for _, want := range []string{"data-gapbar>", "data-gapnext>", "unresolved gap"} {
+		if !contains(ebody, want) {
+			t.Errorf("/editor missing %q (gap controls must live here)", want)
+		}
 	}
 }
 

@@ -146,7 +146,7 @@ func TestProposalFlowOverHTTP(t *testing.T) {
 	svc.Wait()
 
 	body = get(t, h, "/workspace/zta-1")
-	if !contains(body, "Package ready to submit") || !contains(body, "Submit to SAM.gov") {
+	if !contains(body, "Package ready to save") || !contains(body, "Save to Google Drive") {
 		t.Fatalf("workspace should be at the ready state after a clean final review")
 	}
 
@@ -156,8 +156,31 @@ func TestProposalFlowOverHTTP(t *testing.T) {
 		t.Fatalf("submit: status %d, want 303", rr.Code)
 	}
 	body = get(t, h, "/workspace/zta-1")
-	if !contains(body, "Submitted to SAM.gov") {
+	if !contains(body, "Saved to Google Drive") {
 		t.Errorf("workspace should show the submitted state")
+	}
+}
+
+// TestDemoSubmitFromGate proves the demo-mode "Save to Google Drive" action
+// saves the package from the gate (skipping the ready-to-submit gate), while a
+// normal submit from the gate is still rejected.
+func TestDemoSubmitFromGate(t *testing.T) {
+	h, svc, _ := newProposalHandler(t)
+	postForm(t, h, "/opportunity/zta-1/select", url.Values{})
+	svc.Wait() // paused at the human gate — not ready to submit
+
+	// A normal submit from the gate is rejected.
+	if rr := postForm(t, h, "/workspace/zta-1/submit", url.Values{}); rr.Code != http.StatusConflict {
+		t.Errorf("non-demo submit from the gate: status %d, want 409", rr.Code)
+	}
+	// The demo submit saves from the gate and reaches the saved state.
+	rr := postForm(t, h, "/workspace/zta-1/submit", url.Values{"demo": {"1"}})
+	if rr.Code != http.StatusSeeOther {
+		t.Fatalf("demo submit: status %d, want 303", rr.Code)
+	}
+	body := get(t, h, "/workspace/zta-1")
+	if !contains(body, "Saved to Google Drive") {
+		t.Errorf("demo submit should reach the saved-to-drive state")
 	}
 }
 

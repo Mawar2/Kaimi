@@ -233,32 +233,24 @@ const workspaceContentTmpl = `{{define "content"}}
     <div class="r-body">
       {{if .Doc}}
       {{$gs := gapSummary .Doc.Sections}}
-      <div class="ed-flag ed-gap gap-summary" data-gapsummary{{if not $gs.Total}} hidden{{end}}>
+      <div class="ed-flag ed-gap gap-summary" data-gapsummary{{if not $gs.Total}} hidden{{end}} style="padding:18px 20px;margin-bottom:20px;align-items:flex-start">
         <span class="ef-ic">` + iconWarn + `</span>
         <div>
           <b data-gapheadline>{{$gs.Headline}}</b>
-          <p>Tomás flagged facts he could not ground — fill each [GAP] marker before approving. The counts update as you edit.</p>
+          <p>Tomás flagged facts he could not ground. Open the full editor to resolve each [GAP] marker — the counts update as you edit.</p>
           <ul class="gs-list">
             {{range $gs.Sections}}<li data-sec="gsec-{{.ID}}"><a href="#gsec-{{.ID}}">{{.Heading}}</a><span class="gs-n">{{.Count}}</span></li>
             {{end}}
           </ul>
+          <a class="kbtn kbtn--secondary kbtn--sm" href="/editor/{{$.Opp.ID}}" style="margin-top:12px;text-decoration:none">` + iconDoc + `Open full editor mode</a>
         </div>
       </div>
       <div class="r-sec-h">What Tomás produced</div>
-      <div class="summary">Drafted {{len .Doc.Sections}} sections into the working draft — download the full Markdown or edit it inline below.</div>
+      <div class="summary">Drafted {{len .Doc.Sections}} sections into the working draft — download the full Markdown, or open the full editor to review every section and resolve gaps.</div>
       <div class="art-row">
         <a class="artifact2" href="/workspace/{{.Opp.ID}}/draft.md" download>` + iconDoc + `Download draft.md<span style="color:var(--ink-4);font-family:var(--font-mono);font-size:11px">{{.VersionLabel}}</span></a>
+        <a class="kbtn kbtn--secondary kbtn--sm" href="/editor/{{.Opp.ID}}" style="text-decoration:none">` + iconDoc + `Open full editor mode</a>
       </div>
-
-      {{range .OpenFlags}}
-      <div class="gapflag">
-        <div class="gf-ic">` + iconWarn + `</div>
-        <div>
-          <div class="gf-t">{{.Title}}</div>
-          <div class="gf-d">{{.Detail}}</div>
-        </div>
-      </div>
-      {{end}}
 
       {{if .Criteria}}
       <div class="r-sec-h" style="margin-top:24px">Check against criteria</div>
@@ -281,17 +273,6 @@ const workspaceContentTmpl = `{{define "content"}}
           <textarea name="body" rows="7"{{if $gaps}} class="gap-warn"{{end}}>{{.Body}}</textarea>
           <noscript><button class="kbtn kbtn--secondary kbtn--sm" style="margin-top:6px">Save section</button></noscript>
         </form>
-        <div class="ed-flag ed-gap" data-gapbar{{if not $gaps}} hidden{{end}}>
-          <span class="ef-ic">` + iconWarn + `</span>
-          <div>
-            <b data-gapcount>{{len $gaps}} unresolved gap{{if ne (len $gaps) 1}}s{{end}}</b>
-            <ul class="gap-list" data-gaplist hidden>
-              {{range $gaps}}<li>{{.}}</li>{{end}}
-            </ul>
-          </div>
-          <button type="button" class="kbtn kbtn--ghost kbtn--sm gap-toggle" data-gaptoggle>Show list</button>
-          <button type="button" class="kbtn kbtn--ghost kbtn--sm gap-next" data-gapnext>Next gap &rsaquo;</button>
-        </div>
       </section>
       {{end}}
       {{else}}
@@ -306,6 +287,13 @@ const workspaceContentTmpl = `{{define "content"}}
         <input type="text" name="note" placeholder="What should Tomás change?" style="height:40px;padding:0 13px;border:1px solid var(--border);border-radius:var(--r-md);font:var(--t-small);min-width:230px">
         <button class="kbtn kbtn--changes kbtn--lg">` + iconBack + `Request changes</button>
       </form>
+      <form method="POST" action="/workspace/{{.Opp.ID}}/submit" data-demo-only hidden style="margin:0">
+        <input type="hidden" name="demo" value="1">
+        <button class="kbtn kbtn--select kbtn--lg">` + iconArrow + `Save to Google Drive</button>
+      </form>
+      <label class="demo-toggle" title="Demo mode lets you save the package now, skipping Vera's final pass">
+        <input type="checkbox" data-demo-toggle> Demo mode
+      </label>
       <div class="note">Approving runs Vera&#39;s final pass on your edited draft. Requesting changes sends it back to Tomás.</div>
     </div>
   </div>
@@ -324,11 +312,11 @@ const workspaceContentTmpl = `{{define "content"}}
   <div class="ws-state" style="border-color:color-mix(in oklab,var(--st-done) 40%,transparent);background:linear-gradient(180deg,var(--st-done-bg),var(--surface) 60%)">
     <span class="ws-av" style="background:linear-gradient(155deg,#2BD49A,#15A06B)">` + iconCheck + `</span>
     <div style="flex:1">
-      <h3>Package ready to submit</h3>
-      <div class="desc" style="margin-top:8px">All stages complete — Vera&#39;s final pass validated the draft as you left it. Final human submission to SAM.gov.</div>
+      <h3>Package ready to save</h3>
+      <div class="desc" style="margin-top:8px">All stages complete — Vera&#39;s final pass validated the draft as you left it. Save the final package to your Google Drive.</div>
       <div style="margin-top:16px">
         <form method="POST" action="/workspace/{{.Opp.ID}}/submit">
-          <button class="kbtn kbtn--select kbtn--lg">` + iconArrow + `Submit to SAM.gov</button>
+          <button class="kbtn kbtn--select kbtn--lg">` + iconArrow + `Save to Google Drive</button>
         </form>
       </div>
     </div>
@@ -338,8 +326,8 @@ const workspaceContentTmpl = `{{define "content"}}
   <div class="ws-state" style="border-color:color-mix(in oklab,var(--st-done) 40%,transparent)">
     <span class="ws-av" style="background:linear-gradient(155deg,#2BD49A,#15A06B)">` + iconCheck + `</span>
     <div>
-      <h3>Submitted to SAM.gov</h3>
-      <div class="role">Confirmation logged · the agents stand down on this one.</div>
+      <h3>Saved to Google Drive</h3>
+      <div class="role">The final package is in your Drive · the agents stand down on this one.</div>
       <div class="desc">Kaimi will watch for amendments and Q&amp;A updates on this solicitation and let you know if anything needs attention.</div>
     </div>
   </div>
@@ -380,6 +368,8 @@ const workspaceContentTmpl = `{{define "content"}}
   .ed-save-chip { font: 600 11px/1 var(--font-sans); color: var(--st-done); margin-left: 8px; text-transform: none; letter-spacing: 0; }
   .ed-save-chip.saving { color: var(--ink-3); }
   .r-actions form { margin: 0; }
+  .demo-toggle { display: inline-flex; align-items: center; gap: 6px; font: var(--t-small); color: var(--ink-3); cursor: pointer; user-select: none; margin-left: auto; }
+  .demo-toggle input { accent-color: var(--primary, #2563EB); width: 15px; height: 15px; }
   .draft-body { white-space: pre-wrap; background: var(--surface); border: 1px solid var(--border); border-radius: var(--r-md); padding: 12px 14px; font: var(--t-body); color: var(--ink); }
   .draft-pending { border: 1px dashed var(--border); border-radius: var(--r-md); padding: 12px 14px; font: var(--t-small); color: var(--ink-3); font-style: italic; }
 </style>
@@ -412,6 +402,26 @@ const workspaceContentTmpl = `{{define "content"}}
       }, 900);
     });
   });
+
+  // Demo mode: a persisted toggle that reveals the "Save to Google Drive" action
+  // at the gate, so a presenter can show the full lifecycle without waiting for
+  // Vera's final pass. Production submit (the ready state) is unaffected.
+  (function () {
+    var KEY = "kaimi_demo_mode";
+    function apply(on) {
+      document.querySelectorAll("[data-demo-only]").forEach(function (el) { el.hidden = !on; });
+    }
+    var toggle = document.querySelector("[data-demo-toggle]");
+    var on = localStorage.getItem(KEY) === "1";
+    if (toggle) toggle.checked = on;
+    apply(on);
+    if (toggle) {
+      toggle.addEventListener("change", function () {
+        localStorage.setItem(KEY, toggle.checked ? "1" : "0");
+        apply(toggle.checked);
+      });
+    }
+  })();
 ` + gapScriptJS + `
 </script>
 {{end}}
