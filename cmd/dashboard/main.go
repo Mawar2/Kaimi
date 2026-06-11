@@ -102,13 +102,20 @@ func newProposalService(s store.Store, basePath string, liveWriter, liveReview, 
 		if projectID == "" {
 			return nil, fmt.Errorf("-live-review requires GCP_PROJECT_ID")
 		}
+		// The reviewer model is configured INDEPENDENTLY of the Writer's GEMINI_MODEL.
+		// The Final Review verifier bake-off found gemini-2.5-pro is the best Gemini
+		// compliance verifier (83% defect recall) while gemini-3.1-pro is the worst
+		// (17%) — so the gate must not silently inherit whatever the Writer is set to.
+		// FINALREVIEW_MODEL lets it stay on the validated model (and swap to a Claude
+		// model once Anthropic-on-Vertex quota lands), regardless of GEMINI_MODEL.
+		reviewModel := envOr("FINALREVIEW_MODEL", "gemini-2.5-pro")
 		checker, err := finalreview.NewGeminiComplianceChecker(context.Background(),
-			projectID, envOr("GCP_REGION", "us-east4"), envOr("GEMINI_MODEL", "gemini-2.5-pro"))
+			projectID, envOr("GCP_REGION", "us-east4"), reviewModel)
 		if err != nil {
 			return nil, fmt.Errorf("gemini compliance checker: %w", err)
 		}
 		review = finalreview.NewWithComplianceChecker(checker)
-		log.Printf("Final Review: LIVE Gemini compliance pass enabled (project %s)", projectID)
+		log.Printf("Final Review: LIVE Gemini compliance pass enabled (project %s, model %s)", projectID, reviewModel)
 	} else {
 		log.Printf("Final Review: deterministic checks only (pass -live-review for Gemini compliance)")
 	}
