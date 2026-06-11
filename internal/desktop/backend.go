@@ -218,3 +218,65 @@ func (b *Backend) ListProposals(ctx context.Context) (ProposalsResult, error) {
 	res.Empty = len(res.Cards) == 0
 	return res, nil
 }
+
+// UpdateSection records a human edit to one draft section. Edits are only
+// meaningful while the proposal is paused at the gate; the service enforces that.
+func (b *Backend) UpdateSection(ctx context.Context, oppID, sectionID, body string) error {
+	if b.proposals == nil {
+		return errProposalsDisabled
+	}
+	if _, err := b.proposals.UpdateSection(ctx, oppID, sectionID, body); err != nil {
+		return fmt.Errorf("update section %s/%s: %w", oppID, sectionID, err)
+	}
+	return nil
+}
+
+// Approve is the gate's go decision: the real Final Review runs on the document
+// as the human left it, then the proposal becomes ready to submit (or returns to
+// the gate with flags).
+func (b *Backend) Approve(ctx context.Context, oppID string) error {
+	if b.proposals == nil {
+		return errProposalsDisabled
+	}
+	if err := b.proposals.Approve(ctx, oppID); err != nil {
+		return fmt.Errorf("approve %s: %w", oppID, err)
+	}
+	return nil
+}
+
+// RequestChanges is the gate's other decision: the draft goes back to the Writer
+// with the human's note recorded in the document history.
+func (b *Backend) RequestChanges(ctx context.Context, oppID, note string) error {
+	if b.proposals == nil {
+		return errProposalsDisabled
+	}
+	if err := b.proposals.RequestChanges(ctx, oppID, note); err != nil {
+		return fmt.Errorf("request changes %s: %w", oppID, err)
+	}
+	return nil
+}
+
+// Submit is always a human act: it marks a ready proposal submitted. Kaimi never
+// submits on its own.
+func (b *Backend) Submit(ctx context.Context, oppID string) error {
+	if b.proposals == nil {
+		return errProposalsDisabled
+	}
+	if err := b.proposals.Submit(ctx, oppID); err != nil {
+		return fmt.Errorf("submit %s: %w", oppID, err)
+	}
+	return nil
+}
+
+// DraftMarkdown returns the proposal's working draft as Markdown — the desktop's
+// real, openable draft artifact (issue #246 B3 parity), not a dead label.
+func (b *Backend) DraftMarkdown(oppID string) (string, error) {
+	if b.proposals == nil {
+		return "", errProposalsDisabled
+	}
+	doc, err := b.proposals.Document(oppID)
+	if err != nil {
+		return "", fmt.Errorf("draft for %s: %w", oppID, err)
+	}
+	return doc.Markdown(), nil
+}

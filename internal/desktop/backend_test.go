@@ -108,6 +108,98 @@ func TestSelectAndListProposals(t *testing.T) {
 	}
 }
 
+// TestGateActionsFlow drives the full desktop gate lifecycle over the live
+// service (issue #249): select → gate → edit a section → approve → ready →
+// submit, plus DraftMarkdown (B3) reflecting the human edit. State is read back
+// via ListProposals so it exercises the same zone2view derivation the web uses.
+func TestGateActionsFlow(t *testing.T) {
+	dir := t.TempDir()
+	now := time.Now()
+	seedStore(t, dir, &opportunity.Opportunity{
+		ID: "zta-1", Title: "Zero Trust", Agency: "DHS CISA",
+		Description:      "Modernize zero trust architecture.",
+		ResponseDeadline: now.Add(20 * 24 * time.Hour),
+		Score:            0.87, Recommendation: "BID",
+		Requirements: []string{"FedRAMP High"},
+		ScoredAt:     &now, CreatedAt: now, UpdatedAt: now,
+	})
+	proposals := newStubProposals(t, dir)
+	b, err := desktop.New(dir, desktop.WithProposals(proposals))
+	if err != nil {
+		t.Fatalf("New: %v", err)
+	}
+	ctx := context.Background()
+
+	if err := b.Select(ctx, "zta-1"); err != nil {
+		t.Fatalf("Select: %v", err)
+	}
+	proposals.Wait()
+
+	// DraftMarkdown returns the working draft (B3 source).
+	md, err := b.DraftMarkdown("zta-1")
+	if err != nil || strings.TrimSpace(md) == "" {
+		t.Fatalf("DraftMarkdown at gate: err=%v len=%d", err, len(md))
+	}
+
+	// The human edits a section to satisfy the must-have, then approves.
+	doc, err := proposals.Document("zta-1")
+	if err != nil {
+		t.Fatalf("Document: %v", err)
+	}
+	secID := doc.Sections[0].ID
+	if err := b.UpdateSection(ctx, "zta-1", secID, "We will use FedRAMP High authorized tooling end to end."); err != nil {
+		t.Fatalf("UpdateSection: %v", err)
+	}
+	if err := b.Approve(ctx, "zta-1"); err != nil {
+		t.Fatalf("Approve: %v", err)
+	}
+	proposals.Wait()
+
+	res, _ := b.ListProposals(ctx)
+	if len(res.Cards) != 1 || res.Cards[0].State != "done" {
+		t.Fatalf("after approve want state=done, got %+v", res.Cards)
+	}
+	if md, _ := b.DraftMarkdown("zta-1"); !strings.Contains(md, "FedRAMP High authorized tooling") {
+		t.Errorf("DraftMarkdown should reflect the human edit")
+	}
+
+	if err := b.Submit(ctx, "zta-1"); err != nil {
+		t.Fatalf("Submit: %v", err)
+	}
+	res, _ = b.ListProposals(ctx)
+	if res.Cards[0].State != "submitted" {
+		t.Errorf("after submit want state=submitted, got %q", res.Cards[0].State)
+	}
+}
+
+// TestRequestChangesReturnsToGate proves the gate's other decision sends the
+// draft back to the writer and returns to the gate.
+func TestRequestChangesReturnsToGate(t *testing.T) {
+	dir := t.TempDir()
+	now := time.Now()
+	seedStore(t, dir, &opportunity.Opportunity{
+		ID: "zta-1", Title: "Zero Trust", Agency: "DHS",
+		ResponseDeadline: now.Add(20 * 24 * time.Hour),
+		ScoredAt:         &now, CreatedAt: now, UpdatedAt: now,
+	})
+	proposals := newStubProposals(t, dir)
+	b, _ := desktop.New(dir, desktop.WithProposals(proposals))
+	ctx := context.Background()
+
+	if err := b.Select(ctx, "zta-1"); err != nil {
+		t.Fatalf("Select: %v", err)
+	}
+	proposals.Wait()
+	if err := b.RequestChanges(ctx, "zta-1", "Tighten the technical approach."); err != nil {
+		t.Fatalf("RequestChanges: %v", err)
+	}
+	proposals.Wait()
+	res, _ := b.ListProposals(ctx)
+	if len(res.Cards) != 1 || res.Cards[0].State != "human" {
+		t.Errorf("after request-changes want back at the gate (human), got %+v", res.Cards)
+	}
+}
+
 // TestProposalActionsRequireService keeps a read-only backend valid: the
 // mutating methods report a clear error rather than panicking when no proposal
 // service is wired.
@@ -116,8 +208,24 @@ func TestProposalActionsRequireService(t *testing.T) {
 	if err != nil {
 		t.Fatalf("New: %v", err)
 	}
-	if err := b.Select(context.Background(), "x"); err == nil {
+	ctx := context.Background()
+	if err := b.Select(ctx, "x"); err == nil {
 		t.Errorf("Select without a proposal service should error")
+	}
+	if err := b.Approve(ctx, "x"); err == nil {
+		t.Errorf("Approve without a proposal service should error")
+	}
+	if err := b.RequestChanges(ctx, "x", "n"); err == nil {
+		t.Errorf("RequestChanges without a proposal service should error")
+	}
+	if err := b.Submit(ctx, "x"); err == nil {
+		t.Errorf("Submit without a proposal service should error")
+	}
+	if err := b.UpdateSection(ctx, "x", "s", "b"); err == nil {
+		t.Errorf("UpdateSection without a proposal service should error")
+	}
+	if _, err := b.DraftMarkdown("x"); err == nil {
+		t.Errorf("DraftMarkdown without a proposal service should error")
 	}
 }
 
