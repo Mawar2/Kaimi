@@ -803,3 +803,36 @@ func TestReview_GapBeforeAnyHeading_UnknownSection(t *testing.T) {
 		t.Errorf("expected an [unresolved_gap] issue anchored to (unknown); flags: %v", result.Flags)
 	}
 }
+
+func TestParseGapIssue_RoundTrip(t *testing.T) {
+	ctx := context.Background()
+	a := finalreview.New()
+
+	result, err := a.Review(ctx, finalreview.Input{
+		Draft:       "## Staffing Plan\nTeam of [GAP: count of cleared engineers] will deploy.\n",
+		Opportunity: fixture(),
+	})
+	if err != nil {
+		t.Fatalf("Review() returned unexpected error: %v", err)
+	}
+	issue := result.Flags["issue_1"]
+	section, missing, ok := finalreview.ParseGapIssue(issue)
+	if !ok {
+		t.Fatalf("ParseGapIssue(%q) ok = false, want true", issue)
+	}
+	if section != "Staffing Plan" || missing != "count of cleared engineers" {
+		t.Errorf("ParseGapIssue = (%q, %q), want (\"Staffing Plan\", \"count of cleared engineers\")", section, missing)
+	}
+}
+
+func TestParseGapIssue_RejectsOtherIssues(t *testing.T) {
+	for _, issue := range []string{
+		`[must_have] requirement "FedRAMP High" not addressed in draft`,
+		"",
+		"[unresolved_gap] section not-quoted: missing fact",
+	} {
+		if _, _, ok := finalreview.ParseGapIssue(issue); ok {
+			t.Errorf("ParseGapIssue(%q) ok = true, want false", issue)
+		}
+	}
+}

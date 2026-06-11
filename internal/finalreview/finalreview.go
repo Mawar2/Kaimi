@@ -178,14 +178,46 @@ func checkGaps(draft string) []string {
 			if !closed {
 				remainder = ""
 			}
-			issues = append(issues, fmt.Sprintf(
-				"[unresolved_gap] section %q: missing fact — %q",
-				section, strings.TrimSpace(gapText),
-			))
+			issues = append(issues, gapIssue(section, strings.TrimSpace(gapText)))
 			rest = remainder
 		}
 	}
 	return issues
+}
+
+// gapIssuePrefix opens every unresolved-gap issue string. gapIssue and
+// ParseGapIssue are inverses built around it; keep all three in sync.
+const gapIssuePrefix = "[unresolved_gap] section "
+
+// gapIssue formats one unresolved-gap issue for the issues list.
+func gapIssue(section, missing string) string {
+	return fmt.Sprintf("%s%q: missing fact — %q", gapIssuePrefix, section, missing)
+}
+
+// ParseGapIssue decomposes an [unresolved_gap] issue produced by this agent
+// back into the section heading and the missing-fact text. The proposal
+// service uses it to anchor gap flags to document sections without
+// re-parsing the draft. ok is false for any other issue string.
+func ParseGapIssue(issue string) (section, missing string, ok bool) {
+	rest, found := strings.CutPrefix(issue, gapIssuePrefix)
+	if !found {
+		return "", "", false
+	}
+	quoted, err := strconv.QuotedPrefix(rest)
+	if err != nil {
+		return "", "", false
+	}
+	if section, err = strconv.Unquote(quoted); err != nil {
+		return "", "", false
+	}
+	rest, found = strings.CutPrefix(rest[len(quoted):], ": missing fact — ")
+	if !found {
+		return "", "", false
+	}
+	if missing, err = strconv.Unquote(strings.TrimSpace(rest)); err != nil {
+		return "", "", false
+	}
+	return section, missing, true
 }
 
 // checkDeadline returns an error if the opportunity's response deadline has
